@@ -39,7 +39,7 @@ plotvault-pdm/
 ├── client/                 # Tauri + Vue3 desktop client
 │   ├── src/                #   Vue frontend (UI + preview)
 │   └── src-tauri/          #   Tauri shell
-├── docker-compose.yml       # one-file deployment (image or local build)
+├── docker-compose.yml       # one-file deployment (uses Docker Hub images, placeholders <...>)
 ├── build-push.ps1           # Windows one-click build + push to Docker Hub
 ├── .env.example
 └── README.md
@@ -51,16 +51,17 @@ plotvault-pdm/
 
 On any machine with Docker:
 
+1. Copy `docker-compose.yml` from this repo.
+2. Replace all `<...>` placeholders:
+   - `<DOCKERHUB_USER>` — your Docker Hub username (image prefix)
+   - `<数据库密码>` — the database password (must match in `POSTGRES_PASSWORD` and `DATABASE_URL`)
+   - `<API_TOKEN>` — the access token the client uses to connect
+   - `<HOST_PORT>` — the host port, e.g. `8642` or `38642`
+   - `<DATA_HOST_PATH>` / `<CONFIG_HOST_PATH>` / `<PGDATA_HOST_PATH>` — host paths for drawings data, software cache, and PostgreSQL data
+3. Deploy:
+
 ```bash
-# 1. Create a directory and put these two files in it:
-#    docker-compose.yml and .env.example (from this repo)
-
-cp .env.example .env        # set API_TOKEN / POSTGRES_PASSWORD / PORT
-
-# 2. To use a prebuilt image from Docker Hub:
-#    edit docker-compose.yml and change the image line to <your-user>/plotvault-pdm-server:latest
-
-docker compose up -d --build   # or without --build if using a pulled image
+docker compose up -d
 ```
 
 The stack starts three containers:

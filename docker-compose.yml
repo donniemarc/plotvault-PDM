@@ -1,3 +1,19 @@
+# PlotVault PDM - 通用部署版（任何 Docker 主机 / NAS / TrueNAS 均可用）
+#
+# 用法：
+#   TrueNAS：Apps → Custom App → 勾选 Use docker-compose → 粘贴本文件，
+#           把下面所有 <...> 占位符替换成你自己的值后保存部署。
+#   普通 Docker：替换占位符后执行 docker compose up -d
+#
+# 需要你替换的占位符：
+#   <DOCKERHUB_USER>         你的 Docker Hub 用户名（镜像前缀）
+#   <数据库密码>              数据库密码（POSTGRES_PASSWORD 与 DATABASE_URL 两处必须一致）
+#   <API_TOKEN>              客户端连接用的访问令牌（可随机生成）
+#   <HOST_PORT>              对外端口，例如 8642 或 38642
+#   <DATA_HOST_PATH>         图纸数据目录（宿主路径，如 /mnt/Cloud/pdm）
+#   <CONFIG_HOST_PATH>       软件缓存目录（宿主路径）
+#   <PGDATA_HOST_PATH>       数据库数据目录（宿主路径）
+
 services:
   db:
     image: postgres:18-alpine
@@ -5,12 +21,12 @@ services:
     restart: unless-stopped
     environment:
       - POSTGRES_USER=plotvault_pdm
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-plotvault_pdm}
+      - POSTGRES_PASSWORD=<数据库密码>
       - POSTGRES_DB=plotvault_pdm
     volumes:
       # PG 18+ 镜像数据存于 /var/lib/postgresql/18/docker（主版本子目录），
-      # 因此挂载父目录 /var/lib/postgresql（挂载 /var/lib/postgresql/data 会误判为旧数据而拒绝启动）
-      - ./pgdata:/var/lib/postgresql
+      # 必须挂载父目录 /var/lib/postgresql（挂载 /var/lib/postgresql/data 会误判为旧数据而拒绝启动）
+      - <PGDATA_HOST_PATH>:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U plotvault_pdm -d plotvault_pdm"]
       interval: 10s
@@ -19,31 +35,29 @@ services:
       start_period: 30s
 
   plotvault-pdm:
-    build: ./server
-    image: plotvault-pdm-server:latest
+    image: <DOCKERHUB_USER>/plotvault-pdm-server:latest
     container_name: plotvault-pdm
     restart: unless-stopped
     depends_on:
       - db
     ports:
-      - "${PORT:-8642}:8642"
+      - "<HOST_PORT>:8642"
     environment:
       - DATA_DIR=/data
       - CONFIG_DIR=/config
-      - DATABASE_URL=postgres://plotvault_pdm:${POSTGRES_PASSWORD:-plotvault_pdm}@db:5432/plotvault_pdm
+      - DATABASE_URL=postgres://plotvault_pdm:<数据库密码>@db:5432/plotvault_pdm
       - BIND=0.0.0.0:8642
-      - API_TOKEN=${API_TOKEN:-}
+      - API_TOKEN=<API_TOKEN>
     volumes:
       # /data 只放图纸（library 真实目录 + blobs 版本归档），NAS 上可直接浏览
-      # /config 放软件配置/缓存（dxf_cache + tmp），备份、升级更干净
-      - ./data:/data
-      - ./config:/config
+      # /config 放软件缓存（dxf_cache + tmp）
+      - <DATA_HOST_PATH>:/data
+      - <CONFIG_HOST_PATH>:/config
 
   # 可选：STEP/IGES 服务端转换（大文件解析放到 NAS）。
-  # 部署后把客户端 api.ts 的 STEP_CONVERT_URL 改为 http://<NAS-IP>:8000 即可启用（默认留空=本机 Web Worker）。
+  # 部署后把客户端 api.ts 的 STEP_CONVERT_URL 改为 http://<主机IP>:8000 启用（默认留空=本机 Web Worker）。
   converter:
-    build: ./server/converter
-    image: plotvault-pdm-converter:latest
+    image: <DOCKERHUB_USER>/plotvault-pdm-converter:latest
     container_name: plotvault-pdm-converter
     restart: unless-stopped
     ports:

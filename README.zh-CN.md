@@ -41,7 +41,7 @@ plotvault-pdm/
 ├── client/                 # Tauri + Vue3 桌面客户端
 │   ├── src/                #   Vue 前端（UI + 预览）
 │   └── src-tauri/          #   Tauri 壳
-├── docker-compose.yml       # 一键部署（本地构建或拉取镜像）
+├── docker-compose.yml       # 一键部署（用 Docker Hub 镜像，占位符 <...>）
 ├── build-push.ps1           # Windows 一键构建 + 推送到 Docker Hub
 ├── .env.example
 └── README.md
@@ -53,15 +53,17 @@ plotvault-pdm/
 
 在任意装有 Docker 的机器上：
 
+1. 复制仓库里的 `docker-compose.yml`。
+2. 替换所有 `<...>` 占位符：
+   - `<DOCKERHUB_USER>` — 你的 Docker Hub 用户名（镜像前缀）
+   - `<数据库密码>` — 数据库密码（`POSTGRES_PASSWORD` 与 `DATABASE_URL` 两处必须一致）
+   - `<API_TOKEN>` — 客户端连接用的访问令牌
+   - `<HOST_PORT>` — 对外端口，例如 `8642` 或 `38642`
+   - `<DATA_HOST_PATH>` / `<CONFIG_HOST_PATH>` / `<PGDATA_HOST_PATH>` — 图纸数据、软件缓存、数据库数据的宿主目录
+3. 部署：
+
 ```bash
-# 1. 建一个目录，把仓库里的 docker-compose.yml 和 .env.example 放进去
-
-cp .env.example .env        # 设置 API_TOKEN / POSTGRES_PASSWORD / PORT
-
-# 2. 若想用 Docker Hub 上预构建的镜像：
-#    把 docker-compose.yml 的 image 行改成 <你的用户名>/plotvault-pdm-server:latest
-
-docker compose up -d --build   # 若用已拉取的镜像则不加 --build
+docker compose up -d
 ```
 
 一次启动三个容器：
