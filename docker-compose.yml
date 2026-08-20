@@ -10,7 +10,7 @@
 #   <数据库密码>              数据库密码（POSTGRES_PASSWORD 与 DATABASE_URL 两处必须一致）
 #   <API_TOKEN>              客户端连接用的访问令牌（可随机生成）
 #   <HOST_PORT>              对外端口，例如 8642 或 38642
-#   <DATA_HOST_PATH>         图纸数据目录（宿主路径，如 /mnt/Cloud/pdm）
+#   <DATA_HOST_PATH>         图纸数据目录（宿主路径，如 /mnt/pool1/apps/plotvault-pdm/data）
 #   <CONFIG_HOST_PATH>       软件缓存目录（宿主路径）
 #   <PGDATA_HOST_PATH>       数据库数据目录（宿主路径）
 
