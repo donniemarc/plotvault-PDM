@@ -1,0 +1,53 @@
+# 图文档管理 - TrueNAS Custom App 就绪版
+# 用法：TrueNAS Web UI → Apps → Discover → Custom App → 勾选 "Use docker-compose" → 粘贴本文件
+# 填好下面两处占位符后部署。纯 Web UI，无需 SSH。
+# 数据库为 PostgreSQL（同栈多容器：db 容器 + tuwendang 容器 + 可选 converter 容器）
+
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: tuwendang-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=tuwendang
+      - POSTGRES_PASSWORD=<你的数据库密码>
+      - POSTGRES_DB=tuwendang
+    volumes:
+      # PG 18+ 镜像数据存于 /var/lib/postgresql/18/docker（主版本子目录），
+      # 因此挂载父目录 /var/lib/postgresql（挂载 /var/lib/postgresql/data 会误判为旧数据而拒绝启动）
+      - /mnt/pool1/apps/tuwendang/pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tuwendang -d tuwendang"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  tuwendang:
+    image: <DOCKERHUB_USER>/tuwendang-server:latest
+    container_name: tuwendang
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "8642:8642"
+    environment:
+      - DATA_DIR=/data
+      - CONFIG_DIR=/config
+      - DATABASE_URL=postgres://tuwendang:<你的数据库密码>@db:5432/tuwendang
+      - BIND=0.0.0.0:8642
+      - API_TOKEN=<你的随机TOKEN，与客户端填写的一致>
+    volumes:
+      # 改成你的数据池路径。建议先在 Web UI 的 Storage 里建 dataset（如 /mnt/pool1/apps/tuwendang）
+      # /data 只放图纸（library 真实目录 + blobs 版本归档）；/config 放软件配置/缓存（dxf_cache + tmp）
+      - /mnt/pool1/apps/tuwendang/data:/data
+      - /mnt/pool1/apps/tuwendang/config:/config
+
+  # 可选：STEP/IGES 服务端转换容器（大文件解析放到 NAS）。
+  # 部署后把客户端 api.ts 的 STEP_CONVERT_URL 改为 http://<NAS-IP>:8000（默认留空=本机 Web Worker 解析）
+  converter:
+    image: <DOCKERHUB_USER>/tuwendang-converter:latest
+    container_name: tuwendang-converter
+    restart: unless-stopped
+    ports:
+      - "8000:8000"

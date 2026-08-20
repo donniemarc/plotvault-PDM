@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: tuwendang-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=tuwendang
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-tuwendang}
+      - POSTGRES_DB=tuwendang
+    volumes:
+      # PG 18+ 镜像数据存于 /var/lib/postgresql/18/docker（主版本子目录），
+      # 因此挂载父目录 /var/lib/postgresql（挂载 /var/lib/postgresql/data 会误判为旧数据而拒绝启动）
+      - ./pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tuwendang -d tuwendang"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  tuwendang:
+    build: ./server
+    image: tuwendang-server:latest
+    container_name: tuwendang
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "${PORT:-8642}:8642"
+    environment:
+      - DATA_DIR=/data
+      - CONFIG_DIR=/config
+      - DATABASE_URL=postgres://tuwendang:${POSTGRES_PASSWORD:-tuwendang}@db:5432/tuwendang
+      - BIND=0.0.0.0:8642
+      - API_TOKEN=${API_TOKEN:-}
+    volumes:
+      # /data 只放图纸（library 真实目录 + blobs 版本归档），NAS 上可直接浏览
+      # /config 放软件配置/缓存（dxf_cache + tmp），备份、升级更干净
+      - ./data:/data
+      - ./config:/config
+
+  # 可选：STEP/IGES 服务端转换（大文件解析放到 NAS）。
+  # 部署后把客户端 api.ts 的 STEP_CONVERT_URL 改为 http://<NAS-IP>:8000 即可启用（默认留空=本机 Web Worker）。
+  converter:
+    build: ./server/converter
+    image: tuwendang-converter:latest
+    container_name: tuwendang-converter
+    restart: unless-stopped
+    ports:
+      - "8000:8000"

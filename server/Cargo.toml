@@ -1,0 +1,29 @@
+[package]
+name = "tuwendang-server"
+version = "1.0.1"
+edition = "2021"
+
+[[bin]]
+name = "tuwendang-server"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 异步 PG 驱动（纯 Rust，无 libpq）；macros 提供 #[derive(sqlx::FromRow)]
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "tls-none", "macros"] }
+sha2 = "0.10"
+hex = "0.4"
+tower-http = { version = "0.6", features = ["cors"] }
+anyhow = "1"
+mime_guess = "2"
+uuid = { version = "1", features = ["v4"] }
+percent-encoding = "2"
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+strip = true

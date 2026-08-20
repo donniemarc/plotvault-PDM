@@ -1,0 +1,340 @@
+:root {
+  color-scheme: dark;
+
+  /* ---- 表面与层级 ---- */
+  --bg: #0f1419;
+  --bg-panel: #161c24;
+  --bg-elevated: #1b2330;
+  --bg-hover: #1e2733;
+  --bg-active: #223142;
+  --viewer-bg: #0f1419;
+  --viewer-veil: rgba(15, 20, 25, 0.72);
+  --viewer-model: #8fb7e0;
+
+  /* ---- 边框/分隔 ---- */
+  --border: #2a3542;
+  --border-faint: #26303c;
+  --focus-ring: #5a9dff;
+
+  /* ---- 文字 ---- */
+  --text: #dce3ea;
+  --text-dim: #8a97a5;
+  --text-faint: #5c6a7a;
+  --text-on-accent: #ffffff;
+  --text-on-danger: #0d1526;
+
+  /* ---- Accent 系 ---- */
+  --accent: #3d8bfd;
+  --accent-hover: #5a9dff;
+  --accent-strong: #2f6fd6;
+  --accent-strong-hover: #2458c9;
+  --accent-soft: rgba(61, 139, 253, 0.14);
+  --accent-soft-faint: rgba(61, 139, 253, 0.08);
+
+  /* ---- 语义色 ---- */
+  --danger: #e5534b;
+  --danger-soft: rgba(229, 83, 75, 0.16);
+  --ok: #3fb950;
+  --ok-soft: rgba(63, 185, 80, 0.16);
+  --warn: #d29922;
+  --warn-soft: rgba(210, 153, 34, 0.16);
+  --warn-border: rgba(210, 153, 34, 0.45);
+
+  /* ---- 遮罩/阴影/滚动条 ---- */
+  --modal-mask: rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --scroll-thumb: #2e3a48;
+  --scroll-thumb-hover: #3a4856;
+
+  /* ---- 尺寸/字体/过渡 ---- */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --sidebar-w: 240px;
+  --right-panel-w: 460px;
+  --topbar-h: 41px;
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-base: 13px;
+  --font-lg: 15px;
+  --font-xl: 18px;
+  --font-sans: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: Consolas;
+  --transition-fast: 0.12s ease;
+  --z-modal: 100;
+  --z-toast: 200;
+  --z-menu: 300;
+
+  /* ---- 类型徽章（晚上） ---- */
+  --badge-red-bg: rgba(229, 83, 75, 0.16);
+  --badge-red-fg: #f07d75;
+  --badge-orange-bg: rgba(210, 153, 34, 0.16);
+  --badge-orange-fg: #e0b356;
+  --badge-blue-bg: rgba(61, 139, 253, 0.16);
+  --badge-blue-fg: #7db2ff;
+  --badge-cyan-bg: rgba(63, 185, 162, 0.16);
+  --badge-cyan-fg: #57cfba;
+  --badge-magenta-bg: rgba(201, 90, 200, 0.16);
+  --badge-magenta-fg: #d68dd2;
+  --badge-green-bg: rgba(63, 185, 80, 0.16);
+  --badge-green-fg: #63d17a;
+  --badge-gray-bg: rgba(138, 151, 165, 0.16);
+  --badge-gray-fg: #9aa7b5;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* ---- 表面与层级 ---- */
+  --bg: #f4f6f9;
+  --bg-panel: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-hover: #eef1f5;
+  --bg-active: #e2e8f0;
+  --viewer-bg: #e9ecef;
+  --viewer-veil: rgba(244, 246, 249, 0.78);
+  --viewer-model: #5b8ec9;
+
+  /* ---- 边框/分隔 ---- */
+  --border: #d8dde5;
+  --border-faint: #e8ebf0;
+  --focus-ring: #2563eb;
+
+  /* ---- 文字 ---- */
+  --text: #1e2a3a;
+  --text-dim: #5f6b7a;
+  --text-faint: #7a8794;
+  --text-on-accent: #ffffff;
+  --text-on-danger: #ffffff;
+
+  /* ---- Accent 系 ---- */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-strong: #2563eb;
+  --accent-strong-hover: #1d4ed8;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-soft-faint: rgba(37, 99, 235, 0.08);
+
+  /* ---- 语义色 ---- */
+  --danger: #c93a3a;
+  --danger-soft: #fbe9e9;
+  --ok: #15803d;
+  --ok-soft: #e8f5ec;
+  --warn: #92600c;
+  --warn-soft: #fff8e1;
+  --warn-border: rgba(146, 96, 12, 0.35);
+
+  /* ---- 遮罩/阴影/滚动条 ---- */
+  --modal-mask: rgba(15, 23, 42, 0.35);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.12);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.16);
+  --scroll-thumb: #b8bfc9;
+  --scroll-thumb-hover: #9aa4b0;
+
+  /* ---- 类型徽章（白天） ---- */
+  --badge-red-bg: #fbe9e9;
+  --badge-red-fg: #b3261e;
+  --badge-orange-bg: #fdf0e3;
+  --badge-orange-fg: #b45309;
+  --badge-blue-bg: #e8f0fe;
+  --badge-blue-fg: #1d4ed8;
+  --badge-cyan-bg: #e5f5f8;
+  --badge-cyan-fg: #0e7490;
+  --badge-magenta-bg: #f9eafa;
+  --badge-magenta-fg: #a21caf;
+  --badge-green-bg: #e8f5ec;
+  --badge-green-fg: #15803d;
+  --badge-gray-bg: #f0f2f5;
+  --badge-gray-fg: #57606a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--font-base);
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  font-size: var(--font-base);
+  color: var(--text);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast),
+    border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-active);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: var(--text-on-accent);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-strong-hover);
+  border-color: var(--accent-strong-hover);
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+input[type='text'],
+input[type='password'],
+textarea,
+select {
+  font-family: inherit;
+  font-size: var(--font-base);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  outline: none;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+}
+
+/* 全局双层焦点环 */
+:is(button, input, textarea, select, .node, .mini, .ops button, .close, .icon-btn, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 4px var(--focus-ring);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.badge {
+  display: inline-block;
+  min-width: 40px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-align: center;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.badge.red { background: var(--badge-red-bg); color: var(--badge-red-fg); }
+.badge.orange { background: var(--badge-orange-bg); color: var(--badge-orange-fg); }
+.badge.blue { background: var(--badge-blue-bg); color: var(--badge-blue-fg); }
+.badge.cyan { background: var(--badge-cyan-bg); color: var(--badge-cyan-fg); }
+.badge.magenta { background: var(--badge-magenta-bg); color: var(--badge-magenta-fg); }
+.badge.green { background: var(--badge-green-bg); color: var(--badge-green-fg); }
+.badge.gray { background: var(--badge-gray-bg); color: var(--badge-gray-fg); }
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-mask);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+}
+
+.modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  min-width: 380px;
+  max-width: min(480px, 90vw);
+  max-height: 88vh;
+  overflow: auto;
+  padding: 18px 20px;
+}
+
+.modal h3 {
+  margin: 0 0 14px;
+  font-size: var(--font-lg);
+}
+
+.modal .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.toast-wrap {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: var(--z-toast);
+}
+
+.toast {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+}
+
+.toast.error { border-left-color: var(--danger); }
+.toast.ok { border-left-color: var(--ok); }
+
+body.resizing-cursor,
+body.resizing-cursor * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+/* 拖放上传：拖到 PDF 预览 iframe 上方时让事件穿透到父文档 */
+body.file-dragging iframe,
+body.file-dragging iframe * {
+  pointer-events: none !important;
+}

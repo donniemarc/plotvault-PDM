@@ -1,0 +1,24 @@
+# server
+server/target/
+server/data/
+data/
+server/converter/node_modules/
+
+# client
+client/node_modules/
+client/dist/
+client/src-tauri/target/
+client/src-tauri/gen/
+
+# env
+.env
+
+# internal docs / handover (not for public release)
+.opencode/
+HANDOVER.md
+AGENTS.md
+CHANGELOG.md
+
+# test artifacts
+client/test-tmp/
+server/test_data/
