@@ -1,167 +1,174 @@
 # PlotVault PDM
 
-A lightweight, self-hosted drawing and document management system. Deploy the backend anywhere Docker runs (NAS, home server, VPS, or your own machine) and manage your files from a native Windows desktop client.
+轻量级自建图纸文档管理系统 —— 让你的模型和设计文件不再散落各处。
 
-- **Backend**: Rust + Axum + **PostgreSQL**, single static binary, ~20 MB Docker image, runs 24/7 with minimal footprint
-- **Client**: Tauri 2 + Vue 3 + Three.js, native window, small installer, fast startup
-- **Storage**: drawing files are stored directly on your disk as real directories (your data is the directory — backup by copying the folder), metadata and versions live in PostgreSQL; software cache (`/config`) and drawing data (`/data`) are mounted separately
+English version: [README.en.md](README.en.md)
 
-## Features
+## 为什么做这个
 
-### Core
-- Folder tree + file list
-- Upload (drag & drop), download, delete, rename, move
-- **Versioning**: uploading a file with the same name automatically creates a new version; view history, download any old version, add per-version notes
-- Preview (see matrix below)
-- Filename search
-- Optional API token (LAN access protection)
+作为一个 3D 打印爱好者，硬盘里堆积了上百个模型文件——同一款支架改了五六个版本，不知道哪个是最终版；想找一个月前下载的零件，翻遍文件夹也找不到。设计迭代时更头疼：改了一版尺寸后，旧版直接被覆盖，想回退只能重画。
 
-### Preview matrix
-| Format | How |
+PlotVault 就是为解决这些问题而生的。它让每个文件都有版本历史，同名上传自动归档旧版；图纸直接存在你 NAS 的真实目录里，不用打开软件也能浏览备份。有了它，我终于能安心地打印，不用担心文件管理的混乱了。
+
+## 技术亮点
+
+- **后端**：Rust + Axum + PostgreSQL，单个静态二进制，镜像约 20MB，7×24 常驻零负担
+- **客户端**：Tauri 2 + Vue 3 + Three.js，原生窗口、安装包小、启动快
+- **存储**：图纸文件直接以真实目录存在磁盘上（目录即数据，备份就是拷贝目录），元数据与版本历史存 PostgreSQL；软件缓存与图纸数据分开挂载
+
+## 功能特性
+
+### 基础功能
+- 文件夹树 + 文件列表
+- 上传（拖拽）、下载、删除、重命名、移动
+- **版本管理**：同名文件重复上传自动成为新版本，可查看历史、下载任意旧版、附版本备注
+- 文件名搜索
+- 可选 API Token（局域网访问保护）
+
+### 预览支持
+
+| 格式 | 方案 |
 |---|---|
-| DWG | Server-side `libredwg` converts to DXF → client renders with Three.js |
-| DXF | Rendered directly in the client (LINE/polyline/circle/arc/ellipse/spline/text annotations) |
-| STEP / STP / IGES / IGS | Parsed client-side with `occt-import-js` (OpenCascade WASM), full surfaces/assemblies |
-| STL | Three.js directly |
-| PDF | pdf.js |
-| Image / Text | Built-in viewer |
+| DWG | 服务端 libredwg 转 DXF → 客户端 Three.js 渲染 |
+| DXF | 客户端直接渲染（LINE/多段线/圆/圆弧/椭圆/样条/文字标注） |
+| STEP / STP / IGES / IGS | 客户端 occt-import-js（OpenCascade WASM）直接解析，完整曲面/装配体 |
+| STL | Three.js 直接渲染 |
+| PDF | pdf.js 渲染 |
+| 图片 / 文本 | 内建视图 |
 
-All 2D/3D previews support mouse rotate, zoom, and pan.
+所有 2D/3D 预览都支持鼠标旋转、缩放、平移。
 
-## Project layout
+## 目录结构
 
 ```
 plotvault-pdm/
-├── server/                 # Rust backend
+├── server/                 # Rust 后端
 │   ├── src/                #   main.rs / db.rs / api.rs / storage.rs / convert.rs
-│   ├── Dockerfile          #   multi-stage, includes libredwg (DWG→DXF)
+│   ├── Dockerfile          #   多阶段构建，含 libredwg（DWG→DXF）
 │   └── Cargo.toml
-├── client/                 # Tauri + Vue3 desktop client
-│   ├── src/                #   Vue frontend (UI + preview)
-│   └── src-tauri/          #   Tauri shell
-├── docker-compose.yml       # one-file deployment (uses Docker Hub images, placeholders <...>)
-├── build-push.ps1           # Windows one-click build + push to Docker Hub
+├── client/                 # Tauri + Vue3 桌面客户端
+│   ├── src/                #   Vue 前端（UI + 预览）
+│   └── src-tauri/          #   Tauri 壳
+├── docker-compose.yml       # 一键部署（用 Docker Hub 镜像，占位符 <...>）
+├── build-push.ps1           # Windows 一键构建 + 推送到 Docker Hub
 ├── .env.example
 └── README.md
 ```
 
-## 1. Deploy the backend
+## 一、部署后端
 
-### Option A: Docker Compose (easiest)
+### 方式 A：Docker Compose（最简单）
 
-On any machine with Docker:
+在任意装有 Docker 的机器上：
 
-1. Copy `docker-compose.yml` from this repo.
-2. Replace all `<...>` placeholders:
-   - `<DOCKERHUB_USER>` — your Docker Hub username (image prefix)
-   - `<数据库密码>` — the database password (must match in `POSTGRES_PASSWORD` and `DATABASE_URL`)
-   - `<API_TOKEN>` — the access token the client uses to connect
-   - `<HOST_PORT>` — the host port, e.g. `8642` or `38642`
-   - `<DATA_HOST_PATH>` / `<CONFIG_HOST_PATH>` / `<PGDATA_HOST_PATH>` — host paths for drawings data, software cache, and PostgreSQL data
-3. Deploy:
+1. 复制仓库里的 `docker-compose.yml`。
+2. 替换所有 `<...>` 占位符：
+   - `<DOCKERHUB_USER>` — 你的 Docker Hub 用户名（镜像前缀）
+   - `<数据库密码>` — 数据库密码（`POSTGRES_PASSWORD` 与 `DATABASE_URL` 两处必须一致）
+   - `<API_TOKEN>` — 客户端连接用的访问令牌
+   - `<HOST_PORT>` — 对外端口，例如 `8642` 或 `38642`
+   - `<DATA_HOST_PATH>` / `<CONFIG_HOST_PATH>` / `<PGDATA_HOST_PATH>` — 图纸数据、软件缓存、数据库数据的宿主目录
+3. 部署：
 
 ```bash
 docker compose up -d
 ```
 
-The stack starts three containers:
-- `db` — PostgreSQL 18 (metadata)
-- `plotvault-pdm` — the backend API on port 8642
-- `converter` (optional) — server-side STEP/IGES conversion on port 8000
+一次启动三个容器：
+- `db` — PostgreSQL 18（元数据）
+- `plotvault-pdm` — 后端 API，端口 8642
+- `converter`（可选）— STEP/IGES 服务端转换，端口 8000
 
-### Option B: Build the image and push to Docker Hub (for remote hosts)
+### 方式 B：构建镜像并推送 Docker Hub（用于远程主机）
 
-On your Windows PC (requires Docker Desktop):
+在 Windows PC 上（需 Docker Desktop）：
 
 ```powershell
-.\build-push.ps1        # prompts for your Docker Hub username
+.\build-push.ps1        # 按提示输入 Docker Hub 用户名
 ```
 
-Then on the target host, point `docker-compose.yml` at `<your-user>/plotvault-pdm-server:latest` and run `docker compose up -d`.
+然后在目标主机上把 `docker-compose.yml` 的镜像指向 `<你的用户名>/plotvault-pdm-server:latest`，执行 `docker compose up -d`。
 
-### Option C: Offline tar import (air-gapped)
+### 方式 C：离线 tar 导入（无外网环境）
 
 ```bash
-# On your PC:
+# PC 上：
 docker build -t plotvault-pdm-server ./server
 docker save plotvault-pdm-server | gzip > plotvault-pdm-server.tar.gz
-# Transfer the archive, then load it on the target host:
+# 传送到目标主机后：
 docker load < plotvault-pdm-server.tar.gz
-docker compose up -d    # using a compose file with the locally loaded image
+docker compose up -d    # 使用已加载本地镜像的 compose 文件
 ```
 
-### Verify
+### 验证部署
 
 ```bash
-curl http://<host>:8642/api/health
+curl http://<主机IP>:8642/api/health
 # {"service":"plotvault-pdm","status":"ok"}
 ```
 
-## 2. Build the Windows client
+## 二、构建 Windows 客户端
 
-Build once on a Windows PC (the installer can be distributed to other machines).
+在一台 Windows PC 上构建一次即可（安装包可分发给其他机器）。
 
-Requirements: Rust (MSVC toolchain + Visual Studio Build Tools C++ workload), Node.js 18+, WebView2 runtime (usually preinstalled on Win10/11).
+需要：Rust（MSVC 工具链 + Visual Studio Build Tools C++ 工作负载）、Node.js 18+、WebView2 运行时（Win10/11 一般自带）。
 
 ```powershell
 cd client
 npm install
-npm run tauri build        # produces an NSIS/MSI installer
-# Output in client/src-tauri/target/release/bundle/
+npm run tauri build        # 生成 NSIS/MSI 安装包
+# 产物在 client/src-tauri/target/release/bundle/
 ```
 
-Development:
+开发调试：
 
 ```powershell
 cd client
 npm run tauri dev
 ```
 
-## 3. Usage
+## 三、使用说明
 
-1. Start the client → **Settings** → enter server address (`http://<host>:8642`) and API token → Test connection → Save.
-2. On the **Files** page, browse the folder tree, click a file to preview, and use the buttons for download / versions / rename / move / delete.
-3. Upload: click **Upload** in the top right, or simply drag files into the window. Same-named files in the same folder become new versions automatically.
-4. Versions: select a file → **Versions** to view history, download old versions, or upload a new version with a note.
-5. Close preview via the button in the top-right of the preview pane.
+1. 启动客户端 → **设置** → 填入服务器地址（`http://<主机IP>:8642`）和 API Token → 测试连接 → 保存。
+2. **文件**页浏览文件夹树，单击文件预览，按钮执行下载/版本/重命名/移动/删除。
+3. 上传：右上角「上传」或直接把文件拖进窗口。同目录同名文件自动作为新版本。
+4. 版本：选中文件点「版本」，可查看历史、下载旧版、上传新版本并附备注。
+5. 预览右上角可关闭。
 
-## 4. Configuration
+## 四、配置
 
-| Env var | Default | Description |
+| 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| `DATA_DIR` | `/data` | Drawing data directory (library real dirs + blobs archive), browsable directly on the host |
-| `CONFIG_DIR` | `/config` | Software cache (dxf_cache + tmp) |
-| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/plotvault_pdm` | PostgreSQL connection string (points at the `db` container in compose) |
-| `BIND` | `0.0.0.0:8642` | Listen address |
-| `API_TOKEN` | empty | When set, all APIs require `Authorization: Bearer <token>` |
+| `DATA_DIR` | `/data` | 图纸数据目录（library 真实目录 + blobs 版本归档），主机上可直接浏览 |
+| `CONFIG_DIR` | `/config` | 软件缓存目录（dxf_cache + tmp） |
+| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/plotvault_pdm` | PostgreSQL 连接串（compose 里指向 `db` 容器） |
+| `BIND` | `0.0.0.0:8642` | 监听地址 |
+| `API_TOKEN` | 空 | 设置后所有 API 需 `Authorization: Bearer <token>` |
 
-> ⚠️ Even on a private LAN, it is recommended to set `API_TOKEN`.
+> 即使是局域网私有环境，也建议设置 `API_TOKEN`。
 
-## 5. FAQ
+## 五、FAQ
 
-**DWG preview reports "dwg2dxf not available"?**
-The container lacks `dwg2dxf` — this happens when running the binary bare-metal (the Docker image compiles libredwg from source). Use Docker; conversion runs once on first preview and is cached in `CONFIG_DIR/dxf_cache`.
+**DWG 预览报错「dwg2dxf not available」？**
+说明容器内没有 `dwg2dxf`（本机裸跑二进制时常见，Docker 镜像会从源码编译 libredwg）。请用 Docker 部署；转换只在首次预览时执行并缓存到 `CONFIG_DIR/dxf_cache`。
 
-**How to back up?**
-Copy `data/` (library real dirs + blobs archive) for your drawings; also back up the `pgdata/` volume to preserve metadata (folder structure, version notes). Drawings themselves remain on disk even without the DB.
+**如何备份？**
+备份图纸拷贝 `data/` 目录（library 真实目录 + blobs 归档）即可；建议一并备份 `pgdata/` 卷（目录结构、版本备注等元数据，丢了不影响图纸文件本身）。
 
-**Want to reset?**
-Delete `config/` + clear the database to reset metadata; deleting `data/` also removes all drawings.
+**想清空重建？**
+删除 `config/` + 清空数据库即可重置元数据；删除 `data/` 则连图纸一起清空。
 
-**Can't connect to the database?**
-Make sure the `db` container starts first and is healthy (`pg_isready`), and that `DATABASE_URL` user/password/dbname match the `POSTGRES_*` env vars.
+**数据库连不上？**
+确认 compose 中 `db` 容器先启动且健康（`pg_isready`），`DATABASE_URL` 的用户/密码/库名与 `POSTGRES_*` 一致。
 
-## Roadmap
-- Thumbnails (server-rendered STL/STEP previews)
-- Version diff / DWG→PDF export
-- Batch download (zip)
-- Tags / categories / full-text search
-- Audit log, multi-user permissions
+## 后续计划
 
-## License
+- 缩略图（STL/STEP 服务端渲染小图）
+- 版本对比 / DWG 导出 PDF
+- 批量打包下载（zip）
+- 标签 / 分类 / 全文检索
+- 审计日志、多用户权限
+
+## 许可
 
 [MIT License](LICENSE) © 2026 donniemarc
-
-## 中文文档
-
-[简体中文说明 →](README.zh-CN.md)
