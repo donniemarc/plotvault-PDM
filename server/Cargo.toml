@@ -1,10 +1,10 @@
 [package]
-name = "tuwendang-server"
-version = "1.0.1"
+name = "plotvault-pdm-server"
+version = "1.1.0"
 edition = "2021"
 
 [[bin]]
-name = "tuwendang-server"
+name = "plotvault-pdm-server"
 path = "src/main.rs"
 
 [dependencies]

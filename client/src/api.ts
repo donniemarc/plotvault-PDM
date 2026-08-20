@@ -1,6 +1,6 @@
 import type { FileMeta, Folder, Tree, VersionInfo } from './types'
 
-const STORAGE_KEY = 'tuwendang_config'
+const STORAGE_KEY = 'plotvault_pdm_config'
 export const DEFAULT_SERVER = 'http://192.168.1.1:38642'
 
 // 服务器端 STEP/IGES 转换服务地址（可选）。留空 = 本机 Web Worker 解析；

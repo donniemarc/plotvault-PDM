@@ -1,7 +1,7 @@
 {
-  "name": "tuwendang-client",
+  "name": "plotvault-pdm-client",
   "private": true,
-  "version": "0.9.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

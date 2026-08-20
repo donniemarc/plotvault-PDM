@@ -63,7 +63,7 @@ onMounted(refreshConn)
           <path d="M7 17 L12 10" />
           <path d="M11.5 17 L15 12" />
         </svg>
-        <span class="title">图文档管理</span>
+        <span class="title">PlotVault PDM</span>
       </div>
       <div class="conn" :class="connected === true ? 'ok' : connected === false ? 'bad' : 'unknown'">
         <span class="dot"></span>

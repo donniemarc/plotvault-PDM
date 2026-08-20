@@ -25,7 +25,7 @@ pub struct AppState {
 }
 
 /// 启动迁移：把历史版本在 blobs 中的最新版本复制到 library/<文件夹路径>/ 真实目录，
-/// 让 NAS 上能看到与图文档一致的目录结构（失败的跳过，仍走 blobs 路径）。
+/// 让 NAS 上能看到与 PlotVault PDM 一致的目录结构（失败的跳过，仍走 blobs 路径）。
 async fn migrate_to_library(state: &AppState) {
     let folders = match db::list_folders(&state.db).await {
         Ok(f) => f,
@@ -106,10 +106,10 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(config_dir.join("tmp"))?;
 
     // 数据库改为 PostgreSQL（异步连接池）。DATABASE_URL 示例：
-    //   postgres://tuwendang:tuwendang@db:5432/tuwendang   （Docker Compose 内）
-    //   postgres://postgres:postgres@localhost:5432/tuwendang （本机裸跑）
+    //   postgres://plotvault_pdm:plotvault_pdm@db:5432/plotvault_pdm   （Docker Compose 内）
+    //   postgres://postgres:postgres@localhost:5432/plotvault_pdm （本机裸跑）
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/tuwendang".into());
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/plotvault_pdm".into());
     // 最多等 240s（120×2s），DB 容器初始化慢时服务端自动等待而不是立刻退出
     let pool = connect_with_retry(&database_url, 120).await?;
     db::init(&pool).await?;
@@ -136,7 +136,7 @@ async fn main() -> Result<()> {
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
 
     let app = Router::new()
-        .route("/", get(|| async { "tuwendang server is running" }))
+        .route("/", get(|| async { "plotvault-pdm server is running" }))
         .nest("/api", api::routes(state.clone()))
         // axum 默认 body limit 仅 2MB，图纸文件（DWG/STEP）可达数百 MB，需放开。
         // 大文件仍按流式写入磁盘（storage::stream_field_to_temp），此处只放宽上限。
@@ -145,7 +145,7 @@ async fn main() -> Result<()> {
 
     let addr = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:8642".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    println!("tuwendang server listening on http://{addr}");
+    println!("plotvault-pdm server listening on http://{addr}");
     axum::serve(listener, app).await?;
     Ok(())
 }

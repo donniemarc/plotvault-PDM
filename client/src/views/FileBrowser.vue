@@ -18,7 +18,7 @@ const files = ref<FileMeta[]>([])
 const loading = ref(false)
 const selectedFolder = ref<number | null>(null)
 
-const ROOT_KEY = 'tuwendang_root_name'
+const ROOT_KEY = 'plotvault_pdm_root_name'
 const rootName = ref(localStorage.getItem(ROOT_KEY) || '全部文件')
 function setRootName(name: string) {
   const n = name.trim()
@@ -82,7 +82,7 @@ const treeRef = ref<InstanceType<typeof FolderTree> | null>(null)
 
 // ---------- 预览面板：可拖拽调宽 / 全屏 ----------
 const previewFullscreen = ref(false)
-const rightPanelWidth = ref<number>(Number(localStorage.getItem('tuwendang_panel_w')) || 460)
+const rightPanelWidth = ref<number>(Number(localStorage.getItem('plotvault_pdm_panel_w')) || 460)
 
 function sidebarWidth(): number {
   const raw = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w').trim()
@@ -118,7 +118,7 @@ function onResizeStart(e: MouseEvent) {
   const startW = rightPanelWidth.value
   function onMove(ev: MouseEvent) {
     rightPanelWidth.value = clampPanelW(startW - (ev.clientX - startX))
-    localStorage.setItem('tuwendang_panel_w', String(rightPanelWidth.value))
+    localStorage.setItem('plotvault_pdm_panel_w', String(rightPanelWidth.value))
   }
   function onUp() {
     window.removeEventListener('mousemove', onMove)

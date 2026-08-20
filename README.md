@@ -1,209 +1,166 @@
-# 图文档管理（tuwendang）
+# PlotVault PDM
 
-轻量级个人图纸/文档管理系统，专为 TrueNAS 用户设计。Docker Compose 部署到 NAS，Windows 原生桌面客户端（Tauri）连接使用。
+A lightweight, self-hosted drawing and document management system. Deploy the backend anywhere Docker runs (NAS, home server, VPS, or your own machine) and manage your files from a native Windows desktop client.
 
-- **后端**：Rust + Axum + **PostgreSQL**，单静态二进制，镜像约 20MB，7×24 常驻 NAS 零负担
-- **客户端**：Tauri 2 + Vue 3 + Three.js，原生窗口、安装包小、启动快
-- **存储**：图纸 Blob 直接存在 NAS 目录（目录即数据，备份就是拷目录），PostgreSQL 存元数据与版本；软件状态（`/config`）与图纸数据（`/data`）分开挂载
+- **Backend**: Rust + Axum + **PostgreSQL**, single static binary, ~20 MB Docker image, runs 24/7 with minimal footprint
+- **Client**: Tauri 2 + Vue 3 + Three.js, native window, small installer, fast startup
+- **Storage**: drawing files are stored directly on your disk as real directories (your data is the directory — backup by copying the folder), metadata and versions live in PostgreSQL; software cache (`/config`) and drawing data (`/data`) are mounted separately
 
-## 功能
+## Features
 
-### 基础
-- 文件夹树 + 文件列表
-- 上传（拖拽）、下载、删除、重命名、移动
-- **版本管理**：同名图纸重复上传自动成为新版本，可查看历史、下载任意旧版、附版本备注
-- 预览（见下表）
-- 文件名搜索
-- 可选 API Token（局域网访问保护）
+### Core
+- Folder tree + file list
+- Upload (drag & drop), download, delete, rename, move
+- **Versioning**: uploading a file with the same name automatically creates a new version; view history, download any old version, add per-version notes
+- Preview (see matrix below)
+- Filename search
+- Optional API token (LAN access protection)
 
-### 预览支持矩阵
-| 格式 | 方案 |
+### Preview matrix
+| Format | How |
 |---|---|
-| DWG | 服务端 `libredwg` 转 DXF → 客户端 Three.js 渲染 |
-| DXF | 客户端直接渲染（支持 LINE/多段线/圆/圆弧/椭圆/样条/文字标注点） |
-| STEP / STP / IGES / IGS | 客户端 `occt-import-js`（OpenCascade WASM）直接解析，完整曲面/装配体 |
-| STL | Three.js 直接渲染 |
-| PDF | pdf.js 渲染 |
-| 图片 / 文本 | 内建视图 |
+| DWG | Server-side `libredwg` converts to DXF → client renders with Three.js |
+| DXF | Rendered directly in the client (LINE/polyline/circle/arc/ellipse/spline/text annotations) |
+| STEP / STP / IGES / IGS | Parsed client-side with `occt-import-js` (OpenCascade WASM), full surfaces/assemblies |
+| STL | Three.js directly |
+| PDF | pdf.js |
+| Image / Text | Built-in viewer |
 
-所有 2D/3D 预览都支持鼠标旋转、缩放、平移。
+All 2D/3D previews support mouse rotate, zoom, and pan.
 
-## 目录结构
+## Project layout
 
 ```
-tuwendang/
-├── server/                 # Rust 后端
+plotvault-pdm/
+├── server/                 # Rust backend
 │   ├── src/                #   main.rs / db.rs / api.rs / storage.rs / convert.rs
-│   ├── Dockerfile          #   multi-stage，含 libredwg（DWG→DXF）
+│   ├── Dockerfile          #   multi-stage, includes libredwg (DWG→DXF)
 │   └── Cargo.toml
-├── client/                 # Tauri + Vue3 客户端
-│   ├── src/                #   Vue 前端（UI + 预览）
-│   └── src-tauri/          #   Tauri 壳
-├── docker-compose.yml       # SSH 部署用
-├── truenas-compose.yml      # TrueNAS Custom App 直接粘贴用
-├── truenas/                 # PC 一键构建推送脚本 build-push.ps1
+├── client/                 # Tauri + Vue3 desktop client
+│   ├── src/                #   Vue frontend (UI + preview)
+│   └── src-tauri/          #   Tauri shell
+├── docker-compose.yml       # one-file deployment (image or local build)
+├── build-push.ps1           # Windows one-click build + push to Docker Hub
 ├── .env.example
 └── README.md
 ```
 
-## 一、部署到 TrueNAS Scale
+## 1. Deploy the backend
 
-> 首选方式：**PC 上构建镜像 → 推到 Docker Hub → TrueNAS Web UI 粘贴 compose 部署**。
-> 全程不用 SSH、不改系统。TrueNAS 的 Apps 是原生功能，重启后自动恢复拉起容器，数据随数据池持久化。
+### Option A: Docker Compose (easiest)
 
-### 方式 A：Docker Hub + Web UI（推荐，无需 SSH）
+On any machine with Docker:
 
-**第一步：在 PC 上构建并推送镜像**（只装 Docker Desktop 到 PC，不涉及 NAS）
+```bash
+# 1. Create a directory and put these two files in it:
+#    docker-compose.yml and .env.example (from this repo)
+
+cp .env.example .env        # set API_TOKEN / POSTGRES_PASSWORD / PORT
+
+# 2. To use a prebuilt image from Docker Hub:
+#    edit docker-compose.yml and change the image line to <your-user>/plotvault-pdm-server:latest
+
+docker compose up -d --build   # or without --build if using a pulled image
+```
+
+The stack starts three containers:
+- `db` — PostgreSQL 18 (metadata)
+- `plotvault-pdm` — the backend API on port 8642
+- `converter` (optional) — server-side STEP/IGES conversion on port 8000
+
+### Option B: Build the image and push to Docker Hub (for remote hosts)
+
+On your Windows PC (requires Docker Desktop):
 
 ```powershell
-# 仓库已提供一键脚本（truenas/build-push.ps1）
-cd truenas
-.\build-push.ps1
-# 按提示：docker login → 输入 Docker Hub 用户名
-# 脚本会构建 tuwendang-server 并 push 到 <用户名>/tuwendang-server:latest
+.\build-push.ps1        # prompts for your Docker Hub username
 ```
 
-**第二步：TrueNAS Web UI 部署**
+Then on the target host, point `docker-compose.yml` at `<your-user>/plotvault-pdm-server:latest` and run `docker compose up -d`.
 
-1. （可选但推荐）Storage → Create Dataset 建一个数据目录，例如 `pool1/apps/tuwendang`（这样有独立 dataset，方便快照备份）。
-2. Apps → Discover → **Custom App** → 勾选 **Use docker-compose**。
-3. 粘贴 [truenas-compose.yml](truenas-compose.yml) 的内容，替换四处：
-   - `<DOCKERHUB_USER>` → 你的 Docker Hub 用户名
-   - `<你的随机TOKEN...>` → 一个随机字符串（客户端连接要用）
-   - `<你的数据库密码>` → 一个随机字符串（数据库容器的密码，DATABASE_URL 里要用同一个）
-   - `/mnt/pool1/apps/tuwendang/data|config|pgdata` → 你的数据/配置/数据库路径
-4. 保存 / 部署，容器状态变为 Running 即可。
-
-**升级方法**：PC 上重新 `docker build + push`，然后在 TrueNAS Apps 里 Update / Redeploy 拉取新镜像。
-
-### 方式 B：SSH + docker compose（需要 SSH，需上传源码）
-
-在 NAS 上创建目录并上传 `server/`、`docker-compose.yml`、`.env.example`：
+### Option C: Offline tar import (air-gapped)
 
 ```bash
-cd /mnt/pool1/apps/tuwendang
-cp .env.example .env   # 设置 API_TOKEN / PORT
-docker compose up -d --build
+# On your PC:
+docker build -t plotvault-pdm-server ./server
+docker save plotvault-pdm-server | gzip > plotvault-pdm-server.tar.gz
+# Transfer the archive, then load it on the target host:
+docker load < plotvault-pdm-server.tar.gz
+docker compose up -d    # using a compose file with the locally loaded image
 ```
 
-### 方式 C：离线 tar 导入（不出网）
+### Verify
 
 ```bash
-# PC 上：
-docker build -t tuwendang-server ./server
-docker save tuwendang-server | gzip > tuwendang-server.tar.gz
-# 传到 TrueNAS Web UI：Apps → Manage Docker Images → Import 选择该 tar.gz
-# 然后 Custom App 粘贴以下 compose（镜像已在本地，无需拉取）：
+curl http://<host>:8642/api/health
+# {"service":"plotvault-pdm","status":"ok"}
 ```
 
-```yaml
-services:
-  db:
-    image: postgres:18-alpine
-    restart: unless-stopped
-    environment:
-      - POSTGRES_USER=tuwendang
-      - POSTGRES_PASSWORD=<你的数据库密码>
-      - POSTGRES_DB=tuwendang
-    volumes:
-      # PG 18+ 镜像数据存于 /var/lib/postgresql/18/docker（主版本子目录），
-      # 因此挂载父目录 /var/lib/postgresql（挂载 /var/lib/postgresql/data 会误判为旧数据而拒绝启动）
-      - /mnt/pool1/apps/tuwendang/pgdata:/var/lib/postgresql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tuwendang -d tuwendang"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+## 2. Build the Windows client
 
-  tuwendang:
-    image: tuwendang-server:latest
-    restart: unless-stopped
-    depends_on:
-      - db
-    ports:
-      - "8642:8642"
-    environment:
-      - DATA_DIR=/data
-      - CONFIG_DIR=/config
-      - DATABASE_URL=postgres://tuwendang:<你的数据库密码>@db:5432/tuwendang
-      - API_TOKEN=<你的随机TOKEN>
-    volumes:
-      - /mnt/pool1/apps/tuwendang/data:/data
-      - /mnt/pool1/apps/tuwendang/config:/config
-```
+Build once on a Windows PC (the installer can be distributed to other machines).
 
-### 验证部署
-
-```bash
-curl http://<NAS-IP>:8642/api/health
-# {"service":"tuwendang","status":"ok"}
-```
-
-## 二、构建 Windows 客户端
-
-客户端在 **你自己的 Windows PC** 上构建一次即可（构建产物可分发/安装到其他机器）。
-
-需要：Rust（MSVC 工具链 + Visual Studio Build Tools C++ 工作负载）、Node.js 18+、WebView2 运行时（Win10/11 一般自带）。
+Requirements: Rust (MSVC toolchain + Visual Studio Build Tools C++ workload), Node.js 18+, WebView2 runtime (usually preinstalled on Win10/11).
 
 ```powershell
 cd client
 npm install
-npm run tauri build        # 生成 NSIS/MSI 安装包
-# 产物在 client/src-tauri/target/release/bundle/
+npm run tauri build        # produces an NSIS/MSI installer
+# Output in client/src-tauri/target/release/bundle/
 ```
 
-开发调试：
+Development:
 
 ```powershell
 cd client
 npm run tauri dev
 ```
 
-## 三、使用说明
+## 3. Usage
 
-1. 启动客户端 → **设置** → 填入服务器地址（`http://<NAS-IP>:8642`）和 API Token → 测试连接 → 保存。
-2. **文件**页浏览文件夹树，双击文件预览，按钮执行下载/版本/重命名/移动/删除。
-3. 上传：右上角「上传」或直接把文件拖进窗口。同名文件在同一目录下会自动作为新版本。
-4. 版本：选中文件点「版本」，可查看历史、下载旧版、上传新版本并附备注。
-5. 预览右上角可关闭；`v` 版本号显示当前预览的是哪个版本。
+1. Start the client → **Settings** → enter server address (`http://<host>:8642`) and API token → Test connection → Save.
+2. On the **Files** page, browse the folder tree, click a file to preview, and use the buttons for download / versions / rename / move / delete.
+3. Upload: click **Upload** in the top right, or simply drag files into the window. Same-named files in the same folder become new versions automatically.
+4. Versions: select a file → **Versions** to view history, download old versions, or upload a new version with a note.
+5. Close preview via the button in the top-right of the preview pane.
 
-## 四、配置
+## 4. Configuration
 
-| 环境变量 | 默认值 | 说明 |
+| Env var | Default | Description |
 |---|---|---|
-| `DATA_DIR` | `/data` | 图纸数据目录（library 真实目录 + blobs 版本归档），NAS 上可直接浏览 |
-| `CONFIG_DIR` | `/config` | 软件缓存目录（dxf_cache + tmp） |
-| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/tuwendang` | PostgreSQL 连接串（compose 里指向 `db` 容器） |
-| `BIND` | `0.0.0.0:8642` | 监听地址 |
-| `API_TOKEN` | 空 | 设置后所有 API 需 `Authorization: Bearer <token>` |
+| `DATA_DIR` | `/data` | Drawing data directory (library real dirs + blobs archive), browsable directly on the host |
+| `CONFIG_DIR` | `/config` | Software cache (dxf_cache + tmp) |
+| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/plotvault_pdm` | PostgreSQL connection string (points at the `db` container in compose) |
+| `BIND` | `0.0.0.0:8642` | Listen address |
+| `API_TOKEN` | empty | When set, all APIs require `Authorization: Bearer <token>` |
 
-> ⚠️ 个人 NAS 也不建议完全无鉴权暴露在局域网，请务必设置 `API_TOKEN`。
+> ⚠️ Even on a private LAN, it is recommended to set `API_TOKEN`.
 
-## 五、FAQ
+## 5. FAQ
 
-**DWG 预览报错「dwg2dxf not available」？**
-说明容器内没有 `dwg2dxf`（本机裸跑后端时常见，Docker 镜像会从源码编译 libredwg）。用 Docker 部署即可；转换只在首次预览时执行并缓存（`CONFIG_DIR/dxf_cache`）。
+**DWG preview reports "dwg2dxf not available"?**
+The container lacks `dwg2dxf` — this happens when running the binary bare-metal (the Docker image compiles libredwg from source). Use Docker; conversion runs once on first preview and is cached in `CONFIG_DIR/dxf_cache`.
 
-**如何备份？**
-备份**图纸**拷贝 `data/` 目录（library 真实目录 + blobs 版本归档）即可；`pgdata/` 里的 PostgreSQL 元数据建议一并备份（丢了会丢失目录结构/版本备注，但图纸文件本身还在 NAS 上）。
+**How to back up?**
+Copy `data/` (library real dirs + blobs archive) for your drawings; also back up the `pgdata/` volume to preserve metadata (folder structure, version notes). Drawings themselves remain on disk even without the DB.
 
-**想清空重建？**
-删掉 `config/` 目录 + 清空数据库即可重置元数据；删 `data/` 则连同图纸一起清空。
+**Want to reset?**
+Delete `config/` + clear the database to reset metadata; deleting `data/` also removes all drawings.
 
-**数据库连不上？**
-确认 compose 中 `db` 容器先启动且健康（`pg_isready`），`DATABASE_URL` 的用户/密码/库名与 `POSTGRES_*` 一致。
+**Can't connect to the database?**
+Make sure the `db` container starts first and is healthy (`pg_isready`), and that `DATABASE_URL` user/password/dbname match the `POSTGRES_*` env vars.
 
-**大批量上传很慢？**
-当前为单文件流式上传。大文件建议局域网千兆网络直接传。
+## Roadmap
+- Thumbnails (server-rendered STL/STEP previews)
+- Version diff / DWG→PDF export
+- Batch download (zip)
+- Tags / categories / full-text search
+- Audit log, multi-user permissions
 
-## 后续可扩展方向
-- 缩略图（STL/STEP 服务端渲染小图）
-- 图纸版本对比 / DWG 导出 PDF
-- 批量打包下载（zip）
-- 标签 / 分类 / 全文检索
-- 审计日志、多用户权限
-
-## 许可
+## License
 
 [MIT License](LICENSE) © 2026 donniemarc
+
+## 中文文档
+
+[简体中文说明 →](README.zh-CN.md)

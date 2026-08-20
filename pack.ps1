@@ -1,14 +1,14 @@
-﻿# 图文档管理 - 一键打包脚本
+﻿# PlotVault PDM - 一键打包脚本
 # 用法：项目根目录执行  .\pack.ps1
-# 输出：tuwendang-handover.zip（自动排除构建产物/依赖/临时文件）
+# 输出：plotvault-pdm-handover.zip（自动排除构建产物/依赖/临时文件）
 
 param(
-    [string]$Out = "tuwendang-handover.zip"
+    [string]$Out = "plotvault-pdm-handover.zip"
 )
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$stage = Join-Path $env:TEMP "tuwendang-pack"
+$stage = Join-Path $env:TEMP "plotvault-pdm-pack"
 $dest = Join-Path $root $Out
 
 Write-Host "=== cleaning ===" -ForegroundColor Cyan
@@ -26,4 +26,4 @@ Remove-Item -Recurse -Force $stage
 $size = [Math]::Round((Get-Item $dest).Length / 1MB, 2)
 Write-Host ""
 Write-Host "Done! $dest (${size} MB)" -ForegroundColor Green
-Write-Host "On new PC:  cd tuwendang; cd truenas;  .\build-push.ps1"
+Write-Host "On new PC:  cd plotvault-pdm;  .\build-push.ps1"

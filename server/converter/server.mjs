@@ -69,5 +69,5 @@ const server = http.createServer(async (req, res) => {
 })
 
 server.listen(PORT, () => {
-  console.log(`tuwendang converter listening on :${PORT}`)
+  console.log(`plotvault-pdm converter listening on :${PORT}`)
 })

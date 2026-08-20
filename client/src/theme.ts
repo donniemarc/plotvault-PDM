@@ -3,7 +3,7 @@ import { isTauri } from './utils'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type ResolvedTheme = 'light' | 'dark'
-export const THEME_STORAGE_KEY = 'tuwendang_theme'
+export const THEME_STORAGE_KEY = 'plotvault_pdm_theme'
 
 export const themeMode: Ref<ThemeMode> = ref(getStoredMode())
 

@@ -105,7 +105,7 @@ pub fn routes(state: AppState) -> Router {
 }
 
 async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok", "service": "tuwendang" }))
+    Json(json!({ "status": "ok", "service": "plotvault-pdm" }))
 }
 
 async fn tree(State(state): State<AppState>) -> ApiResult<Json<Value>> {

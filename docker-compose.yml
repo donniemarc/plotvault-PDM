@@ -1,27 +1,27 @@
 services:
   db:
     image: postgres:18-alpine
-    container_name: tuwendang-db
+    container_name: plotvault-pdm-db
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=tuwendang
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-tuwendang}
-      - POSTGRES_DB=tuwendang
+      - POSTGRES_USER=plotvault_pdm
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-plotvault_pdm}
+      - POSTGRES_DB=plotvault_pdm
     volumes:
       # PG 18+ 镜像数据存于 /var/lib/postgresql/18/docker（主版本子目录），
       # 因此挂载父目录 /var/lib/postgresql（挂载 /var/lib/postgresql/data 会误判为旧数据而拒绝启动）
       - ./pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tuwendang -d tuwendang"]
+      test: ["CMD-SHELL", "pg_isready -U plotvault_pdm -d plotvault_pdm"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
 
-  tuwendang:
+  plotvault-pdm:
     build: ./server
-    image: tuwendang-server:latest
-    container_name: tuwendang
+    image: plotvault-pdm-server:latest
+    container_name: plotvault-pdm
     restart: unless-stopped
     depends_on:
       - db
@@ -30,7 +30,7 @@ services:
     environment:
       - DATA_DIR=/data
       - CONFIG_DIR=/config
-      - DATABASE_URL=postgres://tuwendang:${POSTGRES_PASSWORD:-tuwendang}@db:5432/tuwendang
+      - DATABASE_URL=postgres://plotvault_pdm:${POSTGRES_PASSWORD:-plotvault_pdm}@db:5432/plotvault_pdm
       - BIND=0.0.0.0:8642
       - API_TOKEN=${API_TOKEN:-}
     volumes:
@@ -43,8 +43,8 @@ services:
   # 部署后把客户端 api.ts 的 STEP_CONVERT_URL 改为 http://<NAS-IP>:8000 即可启用（默认留空=本机 Web Worker）。
   converter:
     build: ./server/converter
-    image: tuwendang-converter:latest
-    container_name: tuwendang-converter
+    image: plotvault-pdm-converter:latest
+    container_name: plotvault-pdm-converter
     restart: unless-stopped
     ports:
       - "8000:8000"

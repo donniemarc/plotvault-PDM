@@ -24,7 +24,7 @@ RUN tar -xzf /tmp/libredwg.tar.gz -C /tmp \
     && make -j"$(nproc)" \
     && make install
 
-# build tuwendang server
+# build plotvault-pdm server
 COPY Cargo.toml ./
 COPY src ./src
 RUN cargo build --release
@@ -36,7 +36,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /tmp/libredwg-install/bin/dwg2dxf /usr/local/bin/dwg2dxf
-COPY --from=builder /app/target/release/tuwendang-server /usr/local/bin/tuwendang-server
+COPY --from=builder /app/target/release/plotvault-pdm-server /usr/local/bin/plotvault-pdm-server
 
 ENV DATA_DIR=/data
 ENV CONFIG_DIR=/config
@@ -44,4 +44,4 @@ ENV BIND=0.0.0.0:8642
 EXPOSE 8642
 VOLUME ["/data", "/config"]
 
-CMD ["tuwendang-server"]
+CMD ["plotvault-pdm-server"]
