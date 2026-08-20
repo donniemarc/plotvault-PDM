@@ -1,23 +1,21 @@
-图文档管理（tuwendang）使用许可
+MIT License
 
-版权所有（c）2026 tuwendang 作者
+Copyright (c) 2026 donniemarc
 
-本软件以「个人免费、商用授权」模式发布（source-available，非 OSI 认可的开源许可证）。
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-一、允许（无需授权）
-1. 个人/非商业使用：任何个人可免费下载、使用、修改本软件及其源代码，用于个人用途，包括但不限于个人 NAS 部署、学习、研究、内部测试。
-2. 贡献：以 Pull Request 形式提交改进、修复与文档。
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-二、需要事先书面授权
-3. 商业使用：任何组织、公司或任何以营利为目的的使用，包括但不限于内部生产环境部署、对外提供服务、销售本软件或其衍生版本、将本软件预装或捆绑进商用产品，均须事先取得作者书面授权。未经授权的商业使用构成侵权。
-
-三、条件
-4. 修改、分发本软件（含其源代码）时必须保留本许可声明及版权信息。
-5. 本软件按「现状」（AS IS）提供，作者不对任何直接、间接或由此产生的损失承担责任，包括但不限于数据丢失、利润损失。
-
-四、商用授权申请
-请联系作者获取商业授权与价格。联系邮箱：donald_1010@qq.com
-
-五、其他
-6. 本许可未明确授予的权利均归作者所有。
-7. 本许可自首次使用本软件之日起生效，任何违反本许可的行为将导致授权自动终止。
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

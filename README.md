@@ -206,4 +206,4 @@ npm run tauri dev
 
 ## 许可
 
-本软件以「个人免费、商用授权」模式发布（source-available，非 OSI 开源许可）：**个人可免费使用**，**商用需联系作者授权**。详见 [LICENSE](LICENSE)。商用授权联系邮箱：donald_1010@qq.com
+[MIT License](LICENSE) © 2026 donniemarc
