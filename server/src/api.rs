@@ -145,6 +145,8 @@ async fn create_folder(
 #[derive(Deserialize)]
 struct FolderPatch {
     name: Option<String>,
+    #[serde(default)]
+    parent_id: Option<Option<i64>>,
 }
 
 async fn patch_folder(
@@ -170,6 +172,38 @@ async fn patch_folder(
         let new_parts = db::folder_path(&state.db, id).await?;
         storage::rename_folder_dir(&state, &old_parts, &new_parts)?;
     }
+
+    // 移动文件夹（改变父级）
+    if let Some(new_parent_id) = body.parent_id {
+        let folder = db::get_folder(&state.db, id).await?.ok_or_else(|| AppError::not_found("folder not found"))?;
+        // 不能移动到自己
+        if new_parent_id == Some(id) {
+            return Err(AppError::bad("不能将文件夹移动到自身"));
+        }
+        // 循环检测：不能移动到自己的子孙目录
+        if let Some(pid) = new_parent_id {
+            if db::is_descendant(&state.db, id, pid).await? {
+                return Err(AppError::bad("不能将文件夹移动到其子目录下"));
+            }
+        }
+        // 同父级则视为无效
+        if folder.parent_id == new_parent_id {
+            let folder = db::get_folder(&state.db, id).await?.ok_or_else(|| AppError::not_found("folder not found"))?;
+            return Ok(Json(json!(folder)));
+        }
+        // 重名检测（新父级下）
+        if let Some(existing) = db::find_folder_by_name(&state.db, new_parent_id, &folder.name).await? {
+            if existing.id != id {
+                return Err(AppError::bad("目标位置已存在同名文件夹"));
+            }
+        }
+        let old_parts = db::folder_path(&state.db, id).await?;
+        db::move_folder(&state.db, id, new_parent_id).await?;
+        // 同步移动 NAS 真实目录
+        let new_parts = db::folder_path(&state.db, id).await?;
+        storage::rename_folder_dir(&state, &old_parts, &new_parts)?;
+    }
+
     let folder = db::get_folder(&state.db, id).await?.ok_or_else(|| AppError::not_found("folder not found"))?;
     Ok(Json(json!(folder)))
 }

@@ -151,6 +151,32 @@ pub async fn rename_folder(pool: &PgPool, id: i64, name: &str) -> sqlx::Result<(
     Ok(())
 }
 
+pub async fn move_folder(pool: &PgPool, id: i64, parent_id: Option<i64>) -> sqlx::Result<()> {
+    sqlx::query("UPDATE folders SET parent_id = $1 WHERE id = $2")
+        .bind(parent_id)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// 检查 target_parent_id 是否是 folder_id 的子孙目录（防止循环引用）
+pub async fn is_descendant(pool: &PgPool, folder_id: i64, target_parent_id: i64) -> sqlx::Result<bool> {
+    let row = sqlx::query(
+        "WITH RECURSIVE sub(id) AS (
+            SELECT $1::BIGINT
+            UNION ALL
+            SELECT f.id FROM folders f JOIN sub s ON f.parent_id = s.id
+         )
+         SELECT EXISTS(SELECT 1 FROM sub WHERE id = $2)",
+    )
+    .bind(target_parent_id)
+    .bind(folder_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.get::<bool, _>(0))
+}
+
 pub async fn delete_folder(pool: &PgPool, id: i64) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM folders WHERE id = $1")
         .bind(id)

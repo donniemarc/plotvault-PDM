@@ -3,7 +3,8 @@ mod convert;
 mod db;
 mod storage;
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use axum::{
@@ -22,6 +23,123 @@ pub struct AppState {
     /// 软件配置/缓存目录（dxf_cache/ + tmp/）
     pub config_dir: PathBuf,
     pub token: Option<String>,
+}
+
+/// 启动时扫描 library/ 目录，将已存在的文件/文件夹导入数据库（幂等）。
+/// 用于数据库清空后重建元数据，避免重复上传导致文件重命名浪费空间。
+async fn scan_library_to_db(state: &AppState) {
+    let library_root = state.data_dir.join("library");
+    let mut path_to_folder_id: HashMap<PathBuf, Option<i64>> = HashMap::new();
+    path_to_folder_id.insert(library_root.clone(), None); // 根目录映射
+
+    // 递归扫描函数
+    async fn scan_dir(
+        dir: PathBuf,
+        parent_folder_id: Option<i64>,
+        state: &AppState,
+        map: &mut HashMap<PathBuf, Option<i64>>,
+    ) {
+        let entries = match tokio::task::spawn_blocking(move || {
+            std::fs::read_dir(dir).map_err(|e| e.to_string())
+        })
+        .await
+        {
+            Ok(Ok(entries)) => entries,
+            _ => return,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let folder_name = match path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n,
+                    None => continue,
+                };
+                // 检查数据库是否已存在同名文件夹
+                let existing =
+                    db::find_folder_by_name(&state.db, parent_folder_id, folder_name).await;
+                let folder_id = match existing {
+                    Ok(Some(f)) => f.id,
+                    _ => {
+                        // 创建新文件夹
+                        db::create_folder(&state.db, folder_name, parent_folder_id)
+                            .await
+                            .unwrap_or(0)
+                    }
+                };
+                map.insert(path.clone(), Some(folder_id));
+                Box::pin(scan_dir(path, Some(folder_id), state, map)).await;
+            } else {
+                let file_name = match path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let ext = storage::ext_of(file_name);
+                // 获取文件大小（同步）
+                let path_clone = path.clone();
+                let size = tokio::task::spawn_blocking(move || {
+                    std::fs::metadata(&path_clone)
+                        .map(|m| m.len())
+                        .unwrap_or(0)
+                })
+                .await
+                .unwrap_or(0);
+                // 计算 SHA256（同步）
+                let path_clone2 = path.clone();
+                let sha = tokio::task::spawn_blocking(move || compute_sha256(&path_clone2))
+                    .await
+                    .unwrap_or_default();
+                // 检查是否已存在同名文件（在相同文件夹下）
+                let existing =
+                    db::find_file_by_name(&state.db, parent_folder_id, file_name).await;
+                if let Ok(Some(_)) = existing {
+                    continue; // 已存在，跳过
+                }
+                // 创建文件记录
+                if let Ok(file_id) =
+                    db::create_file(&state.db, parent_folder_id, file_name, &ext, size as i64).await
+                {
+                    // 计算相对路径（从 data_dir 开始）
+                    let rel = path
+                        .strip_prefix(&state.data_dir)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .replace('\\', "/");
+                    let _ = db::insert_version(&state.db, file_id, 1, &rel, size as i64, &sha, "")
+                        .await;
+                }
+            }
+        }
+    }
+
+    println!("scan: scanning library directory...");
+    scan_dir(library_root, None, state, &mut path_to_folder_id).await;
+    let folders = path_to_folder_id.len().saturating_sub(1); // 减去根目录映射
+    println!("scan: imported {} folders", folders);
+}
+
+/// 同步计算文件 SHA256
+fn compute_sha256(path: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return String::new(),
+    };
+    let mut hasher = Sha256::new();
+    let mut buffer = [0; 8192];
+    loop {
+        let bytes_read = match file.read(&mut buffer) {
+            Ok(n) => n,
+            Err(_) => break,
+        };
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+    hex::encode(hasher.finalize())
 }
 
 /// 启动迁移：把历史版本在 blobs 中的最新版本复制到 library/<文件夹路径>/ 真实目录，
@@ -128,6 +246,7 @@ async fn main() -> Result<()> {
         config_dir,
         token,
     };
+    scan_library_to_db(&state).await;
     migrate_to_library(&state).await;
 
     let cors = CorsLayer::new()

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { DEFAULT_SERVER, getConfig, setConfig } from '../api'
 import { themeMode, setThemeMode, type ThemeMode } from '../theme'
+import { getVersion } from '@tauri-apps/api/app'
 
 const emit = defineEmits<{ saved: [] }>()
 
@@ -9,12 +10,21 @@ const url = ref(getConfig().url || DEFAULT_SERVER)
 const token = ref(getConfig().token)
 const testing = ref(false)
 const result = ref<{ ok: boolean; msg: string } | null>(null)
+const appVersion = ref('')
 
 const themeOptions: { value: ThemeMode; label: string; desc: string }[] = [
   { value: 'system', label: '跟随系统', desc: '与操作系统外观保持一致' },
   { value: 'light', label: '白天', desc: '明亮清爽，适合白天使用' },
   { value: 'dark', label: '晚上', desc: '沉浸深色，适合夜间审图' },
 ]
+
+onMounted(async () => {
+  try {
+    appVersion.value = await getVersion()
+  } catch {
+    appVersion.value = 'unknown'
+  }
+})
 
 async function test() {
   testing.value = true
@@ -153,6 +163,24 @@ function save() {
       </div>
       <div class="dim small theme-note">切换即时生效，无需重启；重启后恢复上次选择。</div>
     </div>
+
+    <div class="card">
+      <h3>关于</h3>
+      <div class="about-info">
+        <div class="about-row">
+          <span class="about-label">应用名称</span>
+          <span class="about-value">PlotVault PDM</span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">当前版本</span>
+          <span class="about-value">v{{ appVersion }}</span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">产品描述</span>
+          <span class="about-value">轻量级个人 NAS 图纸文档管理系统</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -255,5 +283,23 @@ function save() {
 .theme-note {
   margin-top: 10px;
   color: var(--text-faint);
+}
+.about-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.about-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.about-label {
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+  min-width: 80px;
+}
+.about-value {
+  font-weight: 500;
 }
 </style>

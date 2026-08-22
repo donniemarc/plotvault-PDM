@@ -294,8 +294,46 @@ async function doMove() {
   }
 }
 
+// ---------- 拖拽移动文件夹 ----------
+async function onMoveFolder(folderId: number, targetParentId: number | null) {
+  try {
+    await api.moveFolder(folderId, targetParentId)
+    await load()
+    toast('已移动', 'ok')
+  } catch (e: any) {
+    toast(e?.message || '移动失败', 'error')
+  }
+}
+
+// ---------- 拖拽移动文件 ----------
+async function onMoveFiles(fileIds: number[], targetFolderId: number | null) {
+  try {
+    for (const id of fileIds) {
+      const f = filesById.value.get(id)
+      if (f && f.folder_id !== targetFolderId) {
+        await api.patchFile(id, { folder_id: targetFolderId })
+      }
+    }
+    await load()
+    clearSelection()
+    toast('已移动', 'ok')
+  } catch (e: any) {
+    toast(e?.message || '移动失败', 'error')
+  }
+}
+
 function removeFile(f: FileMeta) {
   confirmModal.value = { type: 'file', id: f.id, name: f.name }
+}
+
+// 点击空白区域关闭预览窗口
+function onContentClick(e: Event) {
+  // 只在点击内容区域本身（非文件行）时关闭预览
+  const target = e.target as HTMLElement
+  if (target.classList.contains('content') || target.classList.contains('list-wrap') || target.classList.contains('empty')) {
+    previewFile.value = null
+    versionPanelFile.value = null
+  }
 }
 
 function removeFiles() {
@@ -360,8 +398,16 @@ function onDropToFolder(folderId: number | null, files: File[]) {
 }
 
 function onWindowDragOver(e: DragEvent) {
-  // 应用内无内部 HTML5 拖拽，任何 dragover 都放行，避免 WebView2 光标禁用/事件丢失
-  if (e.dataTransfer) {
+  // 应用内有内部 HTML5 拖拽（文件/文件夹移动），需区分处理
+  const dt = e.dataTransfer
+  if (dt) {
+    // 检查是否是内部拖拽
+    const hasInternalData = dt.types.includes('application/x-folder-id') || dt.types.includes('application/x-file-ids')
+    if (hasInternalData) {
+      // 内部拖拽：不阻止默认行为，让树节点的 drop 处理
+      return
+    }
+    // 外部文件拖入：阻止默认行为，显示遮罩
     e.preventDefault()
     // 拖到左侧文件夹树时隐藏全屏遮罩，让节点自身的虚线高亮可见
     const target = e.target as HTMLElement | null
@@ -381,9 +427,17 @@ function onWindowDragLeave(e: DragEvent) {
 function onWindowDrop(e: DragEvent) {
   dragOver.value = false
   document.body.classList.remove('file-dragging')
-  e.preventDefault()
   const dt = e.dataTransfer
-  if (!dt?.files?.length) return
+  if (!dt) return
+  // 检查是否是内部拖拽（文件夹或文件移动）
+  const hasInternalData = dt.types.includes('application/x-folder-id') || dt.types.includes('application/x-file-ids')
+  if (hasInternalData) {
+    // 内部拖拽：由树节点的 drop.stop 处理，此处不干预
+    return
+  }
+  // 外部文件拖入
+  e.preventDefault()
+  if (!dt.files?.length) return
   // 左侧树的节点有自己的 drop 处理（@drop.stop），此处放行，不重复打开对话框
   const target = e.target as HTMLElement | null
   if (target && target.closest('.tree')) return
@@ -441,6 +495,8 @@ onBeforeUnmount(() => {
         @rename-root="openRename('root', 0, rootName)"
         @delete="removeFolder"
         @drop-files="onDropToFolder"
+        @move-folder="onMoveFolder"
+        @move-files="onMoveFiles"
       />
     </aside>
 
@@ -482,7 +538,7 @@ onBeforeUnmount(() => {
         <button @click="clearSelection">取消选择</button>
       </div>
 
-      <div class="content">
+      <div class="content" @click="onContentClick">
         <FileList
           :files="visibleFiles"
           :previewing-id="previewFile?.id ?? null"
@@ -707,11 +763,16 @@ onBeforeUnmount(() => {
   gap: 4px;
   flex: 1 1 auto;
   min-width: 0;
+  align-items: center;
 }
 .search-box input {
   width: auto;
   flex: 1 1 220px;
   min-width: 60px;
+}
+.search-box .search-btn,
+.search-box .search-clear {
+  flex-shrink: 0;
 }
 .content {
   flex: 1;

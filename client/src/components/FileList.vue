@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { FileMeta } from '../types'
 import { fileBadge, formatBytes, formatDate } from '../utils'
+import { ref } from 'vue'
 
-defineProps<{
+const props = defineProps<{
   files: FileMeta[]
   previewingId?: number | null
   selectedIds?: Set<number>
@@ -20,6 +21,26 @@ const emit = defineEmits<{
   'toggle-select': [id: number]
   'select-all': [checked: boolean]
 }>()
+
+const draggingId = ref<number | null>(null)
+
+function onDragStartFile(e: DragEvent, file: FileMeta) {
+  const dt = e.dataTransfer
+  if (dt) {
+    // 如果文件在选中列表中，拖拽所有选中文件；否则只拖拽当前文件
+    const isSelected = props.selectedIds?.has(file.id)
+    const ids = isSelected
+      ? Array.from(props.selectedIds || [])
+      : [file.id]
+    dt.setData('application/x-file-ids', JSON.stringify(ids))
+    dt.effectAllowed = 'move'
+  }
+  draggingId.value = file.id
+}
+
+function onDragEndFile() {
+  draggingId.value = null
+}
 </script>
 
 <template>
@@ -49,8 +70,11 @@ const emit = defineEmits<{
         <tr
           v-for="f in files"
           :key="f.id"
-          :class="{ previewing: f.id === previewingId }"
+          :class="{ previewing: f.id === previewingId, dragging: draggingId === f.id }"
+          draggable="true"
           @click="emit('preview', f)"
+          @dragstart="onDragStartFile($event, f)"
+          @dragend="onDragEndFile"
         >
           <td class="chk-col" @click.stop>
             <input
@@ -124,6 +148,9 @@ const emit = defineEmits<{
 }
 .file-table tbody tr.previewing {
   background: var(--bg-active);
+}
+.file-table tbody tr.dragging {
+  opacity: 0.4;
 }
 .file-table tbody tr.previewing .fname {
   color: var(--accent);

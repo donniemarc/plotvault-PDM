@@ -14,12 +14,15 @@ const emit = defineEmits<{
   renameRoot: []
   delete: [folder: Folder]
   'drop-files': [folderId: number | null, files: File[]]
+  'move-folder': [folderId: number, targetParentId: number | null]
+  'move-files': [fileIds: number[], targetFolderId: number | null]
 }>()
 
 // 标准逐层展开：打开默认展开根节点显示一级目录，子级点击再展开
 const rootExpanded = ref(true)
 const expanded = ref<Set<number>>(new Set())
 const dragOverId = ref<number | 'root' | null>(null)
+const dragSource = ref<{ type: 'folder' | 'files'; id: number | number[] } | null>(null)
 
 // guides 已移除：用缩进展示层级
 const rows = computed(() => {
@@ -56,9 +59,46 @@ function isExpanded(folder: Folder) {
 
 function onDropNode(e: DragEvent, folderId: number | null) {
   dragOverId.value = null
-  const files = e.dataTransfer?.files
+  // 检查是否是内部拖拽（文件夹或文件移动）
+  const dt = e.dataTransfer
+  if (dt) {
+    const folderDragId = dt.getData('application/x-folder-id')
+    const filesDragIds = dt.getData('application/x-file-ids')
+    if (folderDragId) {
+      const draggedId = parseInt(folderDragId, 10)
+      if (!isNaN(draggedId) && draggedId !== folderId) {
+        emit('move-folder', draggedId, folderId)
+      }
+      return
+    }
+    if (filesDragIds) {
+      try {
+        const ids: number[] = JSON.parse(filesDragIds)
+        if (ids.length > 0) {
+          emit('move-files', ids, folderId)
+        }
+      } catch { /* ignore */ }
+      return
+    }
+  }
+  // 外部文件拖入上传
+  const files = dt?.files
   if (!files || !files.length) return
   emit('drop-files', folderId, Array.from(files))
+}
+
+function onDragStartFolder(e: DragEvent, folderId: number) {
+  const dt = e.dataTransfer
+  if (dt) {
+    dt.setData('application/x-folder-id', String(folderId))
+    dt.effectAllowed = 'move'
+  }
+  dragSource.value = { type: 'folder', id: folderId }
+}
+
+function onDragEnd() {
+  dragSource.value = null
+  dragOverId.value = null
 }
 
 // 展开到指定文件夹（含根节点与所有祖先），使新建的文件夹直接可见
@@ -107,14 +147,22 @@ defineExpose({ expandTo })
       v-for="r in rows"
       :key="r.folder.id"
       class="node"
-      :class="{ selected: selected === r.folder.id, 'drag-over': dragOverId === r.folder.id }"
+      :class="{
+        selected: selected === r.folder.id,
+        'drag-over': dragOverId === r.folder.id,
+        'dragging': dragSource?.type === 'folder' && dragSource?.id === r.folder.id
+      }"
       :style="{ paddingLeft: 8 + r.depth * 16 + 'px' }"
       tabindex="0"
+      draggable="true"
       @click="emit('select', r.folder.id)"
+      @dblclick.stop="toggle(r.folder)"
       @keydown.enter.prevent="emit('select', r.folder.id)"
       @dragover.prevent="dragOverId = r.folder.id"
       @dragleave="dragOverId = null"
       @drop.stop="onDropNode($event, r.folder.id)"
+      @dragstart="onDragStartFolder($event, r.folder.id)"
+      @dragend="onDragEnd"
     >
       <span class="chevron" @click.stop="toggle(r.folder)" :class="{ 'no-child': !r.hasChildren }">
         {{ r.hasChildren ? (isExpanded(r.folder) ? '▾' : '▸') : '' }}
@@ -156,6 +204,9 @@ defineExpose({ expandTo })
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
   background: var(--accent-soft);
+}
+.node.dragging {
+  opacity: 0.4;
 }
 .chevron {
   width: 14px;

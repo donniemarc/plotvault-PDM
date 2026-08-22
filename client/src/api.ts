@@ -156,6 +156,13 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
 
+  moveFolder: (id: number, parent_id: number | null) =>
+    request<Folder>(`/api/folders/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parent_id }),
+    }),
+
   deleteFolder: (id: number) => request<void>(`/api/folders/${id}`, { method: 'DELETE' }),
 
   upload: (file: File, folder_id: number | null, comment = '', new_file = false) => {
