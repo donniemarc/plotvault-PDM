@@ -1,7 +1,7 @@
 import type { FileMeta, Folder, Tree, VersionInfo } from './types'
 
 const STORAGE_KEY = 'plotvault_pdm_config'
-export const DEFAULT_SERVER = 'http://192.168.1.1:38642'
+export const DEFAULT_SERVER = 'http://YOUR_NAS_IP:8642'
 
 // 服务器端 STEP/IGES 转换服务地址（可选）。留空 = 本机 Web Worker 解析；
 // 若 NAS 上部署了 converter 容器（见 server/converter/），填 http://<nas>:8000 可把解析压力放到服务器

@@ -68,7 +68,7 @@ async function test() {
     if (e?.name === 'AbortError') {
       result.value = { ok: false, msg: '连接超时：请确认后端容器已启动，并检查地址与端口' }
     } else {
-      result.value = { ok: false, msg: '无法连接服务器：请确认后端容器已启动，地址请使用 NAS 的 IP（如 http://192.168.1.1:8642）' }
+      result.value = { ok: false, msg: '无法连接服务器：请确认后端容器已启动，地址请使用 NAS 的 IP（如 http://192.168.1.100:8642）' }
     }
   } finally {
     clearTimeout(timer)

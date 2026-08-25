@@ -254,7 +254,7 @@ async fn main() -> Result<()> {
     //   postgres://plotvault_pdm:plotvault_pdm@db:5432/plotvault_pdm   （Docker Compose 内）
     //   postgres://postgres:postgres@localhost:5432/plotvault_pdm （本机裸跑）
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/plotvault_pdm".into());
+        .expect("DATABASE_URL environment variable must be set");
     // 最多等 240s（120×2s），DB 容器初始化慢时服务端自动等待而不是立刻退出
     let pool = connect_with_retry(&database_url, 120).await?;
     db::init(&pool).await?;
