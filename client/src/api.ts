@@ -139,8 +139,16 @@ export async function checkServer(url: string, token: string): Promise<boolean> 
   }
 }
 
+export interface SyncStatus {
+  is_syncing: boolean
+  last_sync_secs: number | null
+  last_sync_result: string | null
+}
+
 export const api = {
   tree: () => request<Tree>('/api/tree'),
+
+  getSyncStatus: () => request<SyncStatus>('/api/sync/status'),
 
   createFolder: (name: string, parent_id: number | null) =>
     request<Folder>('/api/folders', {

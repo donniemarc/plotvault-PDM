@@ -19,6 +19,7 @@ const appVersion = ref('')
 const hasUpdate = ref(false)
 const isCheckingUpdate = ref(false)
 const updateInfo = ref<UpdateInfo | null>(null)
+const updateResult = ref<{ ok: boolean; msg: string } | null>(null)
 
 const themeOptions: { value: ThemeMode; label: string; desc: string }[] = [
   { value: 'system', label: '跟随系统', desc: '与操作系统外观保持一致' },
@@ -84,6 +85,7 @@ function save() {
 
 async function checkUpdate() {
   isCheckingUpdate.value = true
+  updateResult.value = null
   try {
     const update = await checkForUpdates()
     if (update) {
@@ -92,10 +94,10 @@ async function checkUpdate() {
     } else {
       hasUpdate.value = false
       updateInfo.value = null
-      result.value = { ok: true, msg: '已是最新版本' }
+      updateResult.value = { ok: true, msg: '已是最新版本' }
     }
   } catch (error) {
-    result.value = { ok: false, msg: '检查更新失败' }
+    updateResult.value = { ok: false, msg: '检查更新失败' }
   } finally {
     isCheckingUpdate.value = false
   }
@@ -257,6 +259,9 @@ function formatChangelog(text: string) {
               {{ isCheckingUpdate ? '检查中...' : '检查更新' }}
             </button>
             <span v-if="hasUpdate" class="update-dot" />
+            <span v-if="updateResult" class="update-result" :class="updateResult.ok ? 'ok' : 'err'">
+              {{ updateResult.msg }}
+            </span>
           </div>
         </div>
       </div>
@@ -419,6 +424,16 @@ function formatChangelog(text: string) {
   background: #ff4d4f;
   border-radius: 50%;
   animation: pulse 2s infinite;
+}
+.update-result {
+  font-size: var(--font-sm);
+  margin-left: 4px;
+}
+.update-result.ok {
+  color: var(--ok);
+}
+.update-result.err {
+  color: var(--danger);
 }
 @keyframes pulse {
   0%, 100% { opacity: 1; }

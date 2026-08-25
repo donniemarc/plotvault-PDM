@@ -81,6 +81,27 @@ const dragOver = ref(false)
 
 const treeRef = ref<InstanceType<typeof FolderTree> | null>(null)
 
+// 同步状态
+const syncStatus = ref<{ is_syncing: boolean; last_sync_secs: number | null; last_sync_result: string | null }>({
+  is_syncing: false,
+  last_sync_secs: null,
+  last_sync_result: null,
+})
+let syncPollTimer: ReturnType<typeof setInterval> | null = null
+
+async function pollSyncStatus() {
+  try {
+    const s = await api.getSyncStatus()
+    syncStatus.value = s
+    // 如果刚完成同步且之前在同步中，刷新文件列表
+    if (!s.is_syncing && s.last_sync_secs !== null && s.last_sync_secs < 2) {
+      await load()
+    }
+  } catch {
+    // 忽略错误
+  }
+}
+
 // ESC 键关闭预览
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
@@ -594,6 +615,9 @@ onMounted(() => {
     dragOver.value = false
     document.body.classList.remove('file-dragging')
   })
+  // 开始轮询同步状态（每5秒检查一次）
+  pollSyncStatus()
+  syncPollTimer = setInterval(pollSyncStatus, 5000)
 })
 
 function onWinResize() {
@@ -606,6 +630,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('dragover', onWindowDragOver)
   window.removeEventListener('dragleave', onWindowDragLeave)
   window.removeEventListener('drop', onWindowDrop, true)
+  // 清理同步状态轮询
+  if (syncPollTimer) {
+    clearInterval(syncPollTimer)
+    syncPollTimer = null
+  }
 })
 </script>
 
@@ -637,7 +666,7 @@ onBeforeUnmount(() => {
         <div class="crumb">
           <span class="cur-folder">{{ searchOpen ? '搜索结果' : currentFolderName }}</span>
           <span v-if="searchOpen" class="count">（{{ searchResults.length }}）</span>
-          <span v-else class="count">（{{ visibleFiles.length }}）</span>
+          <span v-else-if="visibleFiles.length > 0" class="count">（{{ visibleFiles.length }}）</span>
         </div>
         <div class="head-ops">
           <div class="search-box">
@@ -651,6 +680,12 @@ onBeforeUnmount(() => {
             <button v-else class="search-btn" @click="doSearch">搜索</button>
           </div>
           <button class="btn-refresh" title="刷新文件列表" @click="load()">刷新</button>
+          <span v-if="syncStatus.is_syncing" class="sync-status syncing" title="正在同步文件系统变更">
+            <span class="sync-icon"></span>同步中
+          </span>
+          <span v-else-if="syncStatus.last_sync_result" class="sync-status synced" :title="syncStatus.last_sync_result">
+            已同步
+          </span>
           <button
             class="primary"
             :disabled="!canUploadTo(selectedFolder)"
@@ -924,6 +959,34 @@ onBeforeUnmount(() => {
 .btn-refresh:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: var(--font-sm);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.sync-status.syncing {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.sync-status.synced {
+  color: var(--text-dim);
+  background: transparent;
+}
+.sync-icon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 .content {
   flex: 1;

@@ -5,6 +5,8 @@ mod storage;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use axum::{
@@ -13,7 +15,26 @@ use axum::{
     routing::get,
     Router,
 };
+use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
+
+/// 同步状态
+#[derive(Clone)]
+pub struct SyncStatus {
+    pub is_syncing: bool,
+    pub last_sync: Option<Instant>,
+    pub last_sync_result: Option<String>,
+}
+
+impl Default for SyncStatus {
+    fn default() -> Self {
+        Self {
+            is_syncing: false,
+            last_sync: None,
+            last_sync_result: None,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -23,11 +44,14 @@ pub struct AppState {
     /// 软件配置/缓存目录（dxf_cache/ + tmp/）
     pub config_dir: PathBuf,
     pub token: Option<String>,
+    /// 文件同步状态（用于定时扫描 library/ 目录）
+    pub sync_status: Arc<RwLock<SyncStatus>>,
 }
 
-/// 启动时扫描 library/ 目录，将已存在的文件/文件夹导入数据库（幂等）。
+/// 扫描 library/ 目录，将已存在的文件/文件夹导入数据库（幂等）。
 /// 用于数据库清空后重建元数据，避免重复上传导致文件重命名浪费空间。
-async fn scan_library_to_db(state: &AppState) {
+/// 返回值：(新增文件夹数, 新增文件数)
+async fn scan_library_to_db(state: &AppState) -> (usize, usize) {
     let library_root = state.data_dir.join("library");
     let mut path_to_folder_id: HashMap<PathBuf, Option<i64>> = HashMap::new();
     path_to_folder_id.insert(library_root.clone(), None); // 根目录映射
@@ -116,7 +140,10 @@ async fn scan_library_to_db(state: &AppState) {
     println!("scan: scanning library directory...");
     scan_dir(library_root, None, state, &mut path_to_folder_id).await;
     let folders = path_to_folder_id.len().saturating_sub(1); // 减去根目录映射
-    println!("scan: imported {} folders", folders);
+    // 统计新增文件数（通过计算数据库中文件总数的变化来估算）
+    let file_count = db::list_files(&state.db).await.map(|f| f.len()).unwrap_or(0);
+    println!("scan: imported {} folders, {} total files in db", folders, file_count);
+    (folders, file_count)
 }
 
 /// 同步计算文件 SHA256
@@ -245,6 +272,7 @@ async fn main() -> Result<()> {
         data_dir,
         config_dir,
         token,
+        sync_status: Arc::new(RwLock::new(SyncStatus::default())),
     };
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -266,8 +294,38 @@ async fn main() -> Result<()> {
     // 后台异步执行扫描和迁移，服务立即可用
     let state_bg = state.clone();
     tokio::spawn(async move {
-        scan_library_to_db(&state_bg).await;
+        // 首次启动立即执行一次同步
+        {
+            let mut status = state_bg.sync_status.write().await;
+            status.is_syncing = true;
+        }
+        let (folders, files) = scan_library_to_db(&state_bg).await;
         migrate_to_library(&state_bg).await;
+        {
+            let mut status = state_bg.sync_status.write().await;
+            status.is_syncing = false;
+            status.last_sync = Some(Instant::now());
+            status.last_sync_result = Some(format!("新增 {} 个文件夹，共 {} 个文件", folders, files));
+        }
+        println!("scan: initial sync completed");
+
+        // 定时同步任务：每 30 秒扫描一次 library/ 目录
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        interval.tick().await; // 跳过第一次立即触发的 tick
+        loop {
+            interval.tick().await;
+            {
+                let mut status = state_bg.sync_status.write().await;
+                status.is_syncing = true;
+            }
+            let (folders, files) = scan_library_to_db(&state_bg).await;
+            {
+                let mut status = state_bg.sync_status.write().await;
+                status.is_syncing = false;
+                status.last_sync = Some(Instant::now());
+                status.last_sync_result = Some(format!("新增 {} 个文件夹，共 {} 个文件", folders, files));
+            }
+        }
     });
 
     axum::serve(listener, app).await?;

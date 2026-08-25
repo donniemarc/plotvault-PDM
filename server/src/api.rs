@@ -110,6 +110,7 @@ pub fn routes(state: AppState) -> Router {
         .route("/files/{id}/disk-path", get(disk_path))
         .route("/folders/{id}/disk-path", get(folder_disk_path))
         .route("/search", get(search))
+        .route("/sync/status", get(sync_status))
         .layer(middleware::from_fn_with_state(state.clone(), auth))
         .with_state(state)
 }
@@ -656,4 +657,15 @@ async fn serve_file(path: PathBuf, name: Option<&str>, attachment: bool) -> ApiR
     }
 
     builder.body(body).map_err(|e| AppError::internal(e.to_string()))
+}
+
+/// 获取同步状态
+async fn sync_status(State(state): State<AppState>) -> Json<Value> {
+    let status = state.sync_status.read().await;
+    let last_sync_secs = status.last_sync.map(|t| t.elapsed().as_secs());
+    Json(json!({
+        "is_syncing": status.is_syncing,
+        "last_sync_secs": last_sync_secs,
+        "last_sync_result": status.last_sync_result,
+    }))
 }
