@@ -69,6 +69,12 @@ impl From<axum::extract::multipart::MultipartError> for AppError {
     }
 }
 
+impl From<tokio::task::JoinError> for AppError {
+    fn from(e: tokio::task::JoinError) -> Self {
+        Self::internal(e.to_string())
+    }
+}
+
 pub type ApiResult<T> = Result<T, AppError>;
 
 async fn auth(State(state): State<AppState>, req: Request, next: Next) -> Result<Response, AppError> {
@@ -99,6 +105,10 @@ pub fn routes(state: AppState) -> Router {
         .route("/files/{id}/download", get(download))
         .route("/files/{id}/preview", get(preview))
         .route("/files/{id}/dxf", get(get_dxf))
+        .route("/files/{id}/archive-list", get(archive_list))
+        .route("/files/{id}/archive-entry", get(archive_entry))
+        .route("/files/{id}/disk-path", get(disk_path))
+        .route("/folders/{id}/disk-path", get(folder_disk_path))
         .route("/search", get(search))
         .layer(middleware::from_fn_with_state(state.clone(), auth))
         .with_state(state)
@@ -146,7 +156,7 @@ async fn create_folder(
 struct FolderPatch {
     name: Option<String>,
     #[serde(default)]
-    parent_id: Option<Option<i64>>,
+    parent_id: Option<i64>,
 }
 
 async fn patch_folder(
@@ -173,8 +183,9 @@ async fn patch_folder(
         storage::rename_folder_dir(&state, &old_parts, &new_parts)?;
     }
 
-    // 移动文件夹（改变父级）
-    if let Some(new_parent_id) = body.parent_id {
+    // 移动文件夹（改变父级）：0 = 根目录（parent_id = NULL）
+    if let Some(raw_parent_id) = body.parent_id {
+        let new_parent_id: Option<i64> = if raw_parent_id == 0 { None } else { Some(raw_parent_id) };
         let folder = db::get_folder(&state.db, id).await?.ok_or_else(|| AppError::not_found("folder not found"))?;
         // 不能移动到自己
         if new_parent_id == Some(id) {
@@ -494,6 +505,87 @@ async fn get_dxf(
     serve_file(dxf_path, Some(&dxf_name), true).await
 }
 
+async fn archive_list(
+    State(state): State<AppState>,
+    Path(file_id): Path<i64>,
+    Query(q): Query<VersionQuery>,
+) -> ApiResult<Json<Value>> {
+    let (file, rel_path) = {
+        let file = db::get_file(&state.db, file_id).await?.ok_or_else(|| AppError::not_found("file not found"))?;
+        let ext = file.ext.to_lowercase();
+        if ext != "zip" && ext != "rar" {
+            return Err(AppError::bad("not a ZIP or RAR file"));
+        }
+        let version = match q.version {
+            Some(v) => db::get_version(&state.db, file_id, v).await?.ok_or_else(|| AppError::not_found("version not found"))?,
+            None => db::get_version(&state.db, file_id, file.current_version).await?
+                .ok_or_else(|| AppError::not_found("current version missing"))?,
+        };
+        (file, version.blob_path)
+    };
+
+    let path = storage::blob_abs_path(&state, &rel_path);
+    let entries = match file.ext.to_lowercase().as_str() {
+        "zip" => tokio::task::spawn_blocking(move || convert::list_zip_entries(&path)).await??,
+        "rar" => convert::list_rar_entries(&path).await?,
+        _ => return Err(AppError::bad("unsupported archive format")),
+    };
+
+    Ok(Json(json!({ "entries": entries })))
+}
+
+#[derive(Deserialize)]
+struct ArchiveEntryQuery {
+    version: Option<i64>,
+    path: String,
+}
+
+async fn archive_entry(
+    State(state): State<AppState>,
+    Path(file_id): Path<i64>,
+    Query(q): Query<ArchiveEntryQuery>,
+) -> ApiResult<Response> {
+    let (file, rel_path) = {
+        let file = db::get_file(&state.db, file_id).await?.ok_or_else(|| AppError::not_found("file not found"))?;
+        let ext = file.ext.to_lowercase();
+        if ext != "zip" && ext != "rar" {
+            return Err(AppError::bad("not a ZIP or RAR file"));
+        }
+        let version = match q.version {
+            Some(v) => db::get_version(&state.db, file_id, v).await?.ok_or_else(|| AppError::not_found("version not found"))?,
+            None => db::get_version(&state.db, file_id, file.current_version).await?
+                .ok_or_else(|| AppError::not_found("current version missing"))?,
+        };
+        (file, version.blob_path)
+    };
+
+    let archive_path = storage::blob_abs_path(&state, &rel_path);
+    let entry_name = q.path;
+
+    let stem = file.name.trim_end_matches(&format!(".{}", file.ext));
+    let tmp_name = format!("{}_{}_{}", stem, entry_name.replace('/', "_"), uuid::Uuid::new_v4());
+    let tmp_path = state.config_dir.join("tmp").join(&tmp_name);
+
+    // ensure tmp dir exists
+    let _ = tokio::fs::create_dir_all(state.config_dir.join("tmp")).await;
+
+    match file.ext.to_lowercase().as_str() {
+        "zip" => {
+            let ap = archive_path.clone();
+            let ep = entry_name.clone();
+            let tp = tmp_path.clone();
+            tokio::task::spawn_blocking(move || convert::extract_zip_entry(&ap, &ep, &tp)).await??;
+        }
+        "rar" => {
+            convert::extract_rar_entry(&archive_path, &entry_name, &tmp_path).await?;
+        }
+        _ => return Err(AppError::bad("unsupported archive format")),
+    }
+
+    let display_name = format!("{}/{}", stem, entry_name);
+    serve_file(tmp_path, Some(&display_name), false).await
+}
+
 #[derive(Deserialize)]
 struct SearchQuery {
     q: String,
@@ -502,6 +594,40 @@ struct SearchQuery {
 async fn search(State(state): State<AppState>, Query(q): Query<SearchQuery>) -> ApiResult<Json<Value>> {
     let files = db::search_files(&state.db, q.q.trim()).await?;
     Ok(Json(json!({ "files": files })))
+}
+
+/// 返回文件所在文件夹在磁盘上的绝对路径（用于客户端打开文件夹）
+async fn disk_path(
+    State(state): State<AppState>,
+    Path(file_id): Path<i64>,
+) -> ApiResult<Json<Value>> {
+    let file = db::get_file(&state.db, file_id).await?
+        .ok_or_else(|| AppError::not_found("file not found"))?;
+    // 使用文件夹路径，而不是文件路径（文件可能不存在）
+    let folder_parts = match file.folder_id {
+        Some(fid) => db::folder_path(&state.db, fid).await.unwrap_or_default(),
+        None => vec![],
+    };
+    let folder_abs = storage::folder_dir(&state, &folder_parts);
+    Ok(Json(json!({
+        "path": folder_abs.to_string_lossy(),
+        "name": file.name,
+    })))
+}
+
+/// 返回文件夹在磁盘上的绝对路径（用于客户端打开文件夹）
+async fn folder_disk_path(
+    State(state): State<AppState>,
+    Path(folder_id): Path<i64>,
+) -> ApiResult<Json<Value>> {
+    let folder = db::get_folder(&state.db, folder_id).await?
+        .ok_or_else(|| AppError::not_found("folder not found"))?;
+    let folder_parts = db::folder_path(&state.db, folder_id).await.unwrap_or_default();
+    let folder_abs = storage::folder_dir(&state, &folder_parts);
+    Ok(Json(json!({
+        "path": folder_abs.to_string_lossy(),
+        "name": folder.name,
+    })))
 }
 
 async fn serve_file(path: PathBuf, name: Option<&str>, attachment: bool) -> ApiResult<Response> {

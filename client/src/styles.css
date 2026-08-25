@@ -150,6 +150,74 @@
   --badge-gray-fg: #57606a;
 }
 
+/* 绿色调护眼主题 */
+:root[data-theme='green'] {
+  color-scheme: dark;
+
+  /* ---- 表面与层级 ---- */
+  --bg: #0f1a12;
+  --bg-panel: #162019;
+  --bg-elevated: #1b2820;
+  --bg-hover: #1e3025;
+  --bg-active: #22382c;
+  --viewer-bg: #0f1a12;
+  --viewer-veil: rgba(15, 26, 18, 0.72);
+  --viewer-model: #7cb87c;
+
+  /* ---- 边框/分隔 ---- */
+  --border: #2a4032;
+  --border-faint: #26382c;
+  --focus-ring: #3fb950;
+
+  /* ---- 文字 ---- */
+  --text: #d4ead8;
+  --text-dim: #8ab892;
+  --text-faint: #5c8a64;
+  --text-on-accent: #0f1a12;
+  --text-on-danger: #0f1a12;
+
+  /* ---- Accent 系 ---- */
+  --accent: #3fb950;
+  --accent-hover: #56d364;
+  --accent-strong: #2ea043;
+  --accent-strong-hover: #238636;
+  --accent-soft: rgba(63, 185, 80, 0.14);
+  --accent-soft-faint: rgba(63, 185, 80, 0.08);
+
+  /* ---- 语义色 ---- */
+  --danger: #e5534b;
+  --danger-soft: rgba(229, 83, 75, 0.16);
+  --ok: #3fb950;
+  --ok-soft: rgba(63, 185, 80, 0.16);
+  --warn: #d29922;
+  --warn-soft: rgba(210, 153, 34, 0.16);
+  --warn-border: rgba(210, 153, 34, 0.45);
+
+  /* ---- 遮罩/阴影/滚动条 ---- */
+  --modal-mask: rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --scroll-thumb: #2a4032;
+  --scroll-thumb-hover: #3a5042;
+
+  /* ---- 类型徽章（绿色调） ---- */
+  --badge-red-bg: rgba(229, 83, 75, 0.16);
+  --badge-red-fg: #f07d75;
+  --badge-orange-bg: rgba(210, 153, 34, 0.16);
+  --badge-orange-fg: #e0b356;
+  --badge-blue-bg: rgba(63, 185, 253, 0.16);
+  --badge-blue-fg: #7db2ff;
+  --badge-cyan-bg: rgba(63, 185, 162, 0.16);
+  --badge-cyan-fg: #57cfba;
+  --badge-magenta-bg: rgba(201, 90, 200, 0.16);
+  --badge-magenta-fg: #d68dd2;
+  --badge-green-bg: rgba(63, 185, 80, 0.16);
+  --badge-green-fg: #63d17a;
+  --badge-gray-bg: rgba(138, 151, 165, 0.16);
+  --badge-gray-fg: #9aa7b5;
+}
+
 * {
   box-sizing: border-box;
 }

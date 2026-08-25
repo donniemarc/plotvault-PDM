@@ -34,6 +34,29 @@ export function zoomActiveViewer(factor: number) {
   v.renderer.render(v.scene, v.camera)
 }
 
+/** 绝对缩放：基于 fit() 状态的缩放比例（0.25=25%, 0.5=50%, 0.85=85%） */
+export function setZoom(ratio: number) {
+  const v = activeViewer
+  if (!v) return
+  
+  // 先执行 fit() 获取初始状态
+  v.fit()
+  
+  // 计算初始相机到目标的距离
+  const initialDir = v.camera.position.clone().sub(v.controls.target)
+  const initialDist = initialDir.length()
+  
+  // 根据比例计算新的距离
+  const newDist = initialDist * ratio
+  
+  // 保持方向不变，调整距离
+  const newDir = initialDir.normalize().multiplyScalar(newDist)
+  v.camera.position.copy(v.controls.target).add(newDir)
+  
+  v.controls.update()
+  v.renderer.render(v.scene, v.camera)
+}
+
 /** 白天主题 ACI 近白重映射表（UI-design-spec §3.7）；晚上保持现值 */
 const LIGHT_ACI: Record<number, number> = {
   7: 0x2a3442,

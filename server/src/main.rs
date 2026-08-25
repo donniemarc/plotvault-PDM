@@ -75,6 +75,12 @@ async fn scan_library_to_db(state: &AppState) {
                     None => continue,
                 };
                 let ext = storage::ext_of(file_name);
+                // 检查是否已存在同名文件（在相同文件夹下）
+                let existing =
+                    db::find_file_by_name(&state.db, parent_folder_id, file_name).await;
+                if let Ok(Some(_)) = existing {
+                    continue; // 已存在，跳过（不计算 SHA256，避免重复 IO）
+                }
                 // 获取文件大小（同步）
                 let path_clone = path.clone();
                 let size = tokio::task::spawn_blocking(move || {
@@ -89,12 +95,6 @@ async fn scan_library_to_db(state: &AppState) {
                 let sha = tokio::task::spawn_blocking(move || compute_sha256(&path_clone2))
                     .await
                     .unwrap_or_default();
-                // 检查是否已存在同名文件（在相同文件夹下）
-                let existing =
-                    db::find_file_by_name(&state.db, parent_folder_id, file_name).await;
-                if let Ok(Some(_)) = existing {
-                    continue; // 已存在，跳过
-                }
                 // 创建文件记录
                 if let Ok(file_id) =
                     db::create_file(&state.db, parent_folder_id, file_name, &ext, size as i64).await
@@ -246,9 +246,6 @@ async fn main() -> Result<()> {
         config_dir,
         token,
     };
-    scan_library_to_db(&state).await;
-    migrate_to_library(&state).await;
-
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
@@ -265,6 +262,14 @@ async fn main() -> Result<()> {
     let addr = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:8642".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     println!("plotvault-pdm server listening on http://{addr}");
+
+    // 后台异步执行扫描和迁移，服务立即可用
+    let state_bg = state.clone();
+    tokio::spawn(async move {
+        scan_library_to_db(&state_bg).await;
+        migrate_to_library(&state_bg).await;
+    });
+
     axum::serve(listener, app).await?;
     Ok(())
 }

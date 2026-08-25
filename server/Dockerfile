@@ -33,6 +33,9 @@ RUN cargo build --release
 FROM debian:bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
+    && echo "deb http://deb.debian.org/debian bookworm contrib non-free" >> /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends unrar \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /tmp/libredwg-install/bin/dwg2dxf /usr/local/bin/dwg2dxf

@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import type { FileMeta } from '../types'
+import type { FileMeta, Folder } from '../types'
 import { fileBadge, formatBytes, formatDate } from '../utils'
-import { ref } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import DashboardChart from './DashboardChart.vue'
 
 const props = defineProps<{
   files: FileMeta[]
+  folders?: Folder[]
   previewingId?: number | null
   selectedIds?: Set<number>
   allSelected?: boolean
   someSelected?: boolean
+  isRoot?: boolean
+  stats?: { fileCount: number; folderCount: number; totalSize: number }
+  recentFiles?: FileMeta[]
 }>()
 const emit = defineEmits<{
   preview: [file: FileMeta]
@@ -20,9 +25,42 @@ const emit = defineEmits<{
   upload: []
   'toggle-select': [id: number]
   'select-all': [checked: boolean]
+  'open-folder': [file: FileMeta]
 }>()
 
 const draggingId = ref<number | null>(null)
+
+// 右键菜单
+const contextMenu = ref<{ x: number; y: number; file: FileMeta } | null>(null)
+
+function onContextMenu(e: MouseEvent, file: FileMeta) {
+  e.preventDefault()
+  contextMenu.value = { x: e.clientX, y: e.clientY, file }
+}
+
+function closeContextMenu() {
+  contextMenu.value = null
+}
+
+function ctxAction(action: string) {
+  if (!contextMenu.value) return
+  const file = contextMenu.value.file
+  closeContextMenu()
+  if (action === 'open-folder') emit('open-folder', file)
+  else if (action === 'preview') emit('preview', file)
+  else if (action === 'download') emit('download', file)
+  else if (action === 'versions') emit('versions', file)
+  else if (action === 'rename') emit('rename', file)
+  else if (action === 'move') emit('move', file)
+  else if (action === 'delete') emit('delete', file)
+}
+
+function onGlobalClick() {
+  closeContextMenu()
+}
+
+onMounted(() => document.addEventListener('click', onGlobalClick))
+onBeforeUnmount(() => document.removeEventListener('click', onGlobalClick))
 
 function onDragStartFile(e: DragEvent, file: FileMeta) {
   const dt = e.dataTransfer
@@ -45,7 +83,53 @@ function onDragEndFile() {
 
 <template>
   <div class="list-wrap">
-    <div class="empty" v-if="files.length === 0">此目录为空，点击右上角「上传」添加文件</div>
+    <!-- 根目录空状态：品牌展示 + 数据概览 -->
+    <div v-if="files.length === 0 && isRoot" class="welcome" @contextmenu.prevent @drop.prevent @dragover.prevent>
+      <div class="welcome-brand">
+        <div class="welcome-logo">📁</div>
+        <h1 class="welcome-title">PlotVault PDM</h1>
+        <p class="welcome-desc">轻量级个人 NAS 图纸文档管理系统</p>
+      </div>
+      <div v-if="stats" class="welcome-stats">
+        <div class="stat-item">
+          <span class="stat-value">{{ stats.fileCount }}</span>
+          <span class="stat-label">文件</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value">{{ stats.folderCount }}</span>
+          <span class="stat-label">文件夹</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value">{{ formatBytes(stats.totalSize) }}</span>
+          <span class="stat-label">总大小</span>
+        </div>
+      </div>
+      <DashboardChart :files="files" :folders="folders || []" />
+      <div v-if="recentFiles && recentFiles.length > 0" class="welcome-recent">
+        <h3>最近修改</h3>
+        <div class="recent-list">
+          <div v-for="f in recentFiles" :key="f.id" class="recent-item" @click="emit('preview', f)">
+            <span class="badge" :class="fileBadge(f.ext).c">{{ fileBadge(f.ext).t }}</span>
+            <span class="recent-name">{{ f.name }}</span>
+            <span class="recent-date dim">{{ formatDate(f.updated_at) }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="welcome-tip">点击右上角「上传」添加文件，或从左侧文件树开始浏览</div>
+    </div>
+    <!-- 普通目录空状态 -->
+    <div class="empty" v-else-if="files.length === 0" @contextmenu.prevent @drop.prevent @dragover.prevent>
+      <template v-if="folders && folders.length > 0">
+        <div class="empty-with-folders">
+          <div class="empty-icon">📁</div>
+          <div class="empty-text">此文件夹没有文件，但包含 {{ folders.length }} 个子文件夹</div>
+          <div class="empty-hint">请从左侧文件树浏览子文件夹</div>
+        </div>
+      </template>
+      <template v-else>
+        此目录为空，点击右上角「上传」添加文件
+      </template>
+    </div>
     <table v-else class="file-table">
       <thead>
         <tr>
@@ -73,6 +157,7 @@ function onDragEndFile() {
           :class="{ previewing: f.id === previewingId, dragging: draggingId === f.id }"
           draggable="true"
           @click="emit('preview', f)"
+          @contextmenu="onContextMenu($event, f)"
           @dragstart="onDragStartFile($event, f)"
           @dragend="onDragEndFile"
         >
@@ -102,6 +187,41 @@ function onDragEndFile() {
         </tr>
       </tbody>
     </table>
+
+    <!-- 右键菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="contextMenu"
+        class="context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+        @click.stop
+      >
+        <div class="ctx-item" @click="ctxAction('open-folder')">
+          <span class="ctx-ico">📂</span> 打开文件所在文件夹
+        </div>
+        <div class="ctx-sep" />
+        <div class="ctx-item" @click="ctxAction('preview')">
+          <span class="ctx-ico">👁</span> 预览
+        </div>
+        <div class="ctx-item" @click="ctxAction('download')">
+          <span class="ctx-ico">⬇</span> 下载
+        </div>
+        <div class="ctx-item" @click="ctxAction('versions')">
+          <span class="ctx-ico">📋</span> 版本历史
+        </div>
+        <div class="ctx-sep" />
+        <div class="ctx-item" @click="ctxAction('rename')">
+          <span class="ctx-ico">✎</span> 重命名
+        </div>
+        <div class="ctx-item" @click="ctxAction('move')">
+          <span class="ctx-ico">⇄</span> 移动
+        </div>
+        <div class="ctx-sep" />
+        <div class="ctx-item ctx-danger" @click="ctxAction('delete')">
+          <span class="ctx-ico">🗑</span> 删除
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -117,10 +237,119 @@ function onDragEndFile() {
   height: 100%;
   color: var(--text-dim);
 }
+.empty-with-folders {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.empty-icon {
+  font-size: 48px;
+}
+.empty-text {
+  font-size: var(--font-base);
+  color: var(--text-dim);
+}
+.empty-hint {
+  font-size: var(--font-sm);
+  color: var(--text-faint);
+}
+
+/* 欢迎页面 */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px;
+  gap: 32px;
+}
+.welcome-brand {
+  text-align: center;
+}
+.welcome-logo {
+  font-size: 64px;
+  margin-bottom: 16px;
+}
+.welcome-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.welcome-desc {
+  font-size: var(--font-base);
+  color: var(--text-dim);
+  margin: 0;
+}
+.welcome-stats {
+  display: flex;
+  gap: 40px;
+}
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.stat-label {
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+}
+.welcome-recent {
+  width: 100%;
+  max-width: 500px;
+}
+.welcome-recent h3 {
+  font-size: var(--font-base);
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.recent-item:hover {
+  background: var(--bg-hover);
+}
+.recent-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-date {
+  font-size: var(--font-sm);
+  flex-shrink: 0;
+}
+.welcome-tip {
+  font-size: var(--font-sm);
+  color: var(--text-faint);
+  text-align: center;
+}
+
 .file-table {
   width: 100%;
-  min-width: 760px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 .file-table th {
   position: sticky;
@@ -157,7 +386,10 @@ function onDragEndFile() {
 }
 .fname {
   min-width: 140px;
-  max-width: 320px;
+  max-width: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .center {
   text-align: center;
@@ -203,5 +435,45 @@ function onDragEndFile() {
 .op-del:hover {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+/* 右键菜单 */
+.context-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 180px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: 4px 0;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.ctx-item:hover {
+  background: var(--bg-hover);
+}
+.ctx-ico {
+  font-size: 13px;
+  width: 18px;
+  text-align: center;
+}
+.ctx-sep {
+  height: 1px;
+  background: var(--border-faint);
+  margin: 4px 0;
+}
+.ctx-danger {
+  color: var(--danger);
+}
+.ctx-danger:hover {
+  background: var(--danger-soft);
 }
 </style>

@@ -160,10 +160,14 @@ export const api = {
     request<Folder>(`/api/folders/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ parent_id }),
+      body: JSON.stringify({ parent_id: parent_id ?? 0 }),
     }),
 
   deleteFolder: (id: number) => request<void>(`/api/folders/${id}`, { method: 'DELETE' }),
+
+  getFileDiskPath: (id: number) => request<{ path: string; name: string }>(`/api/files/${id}/disk-path`),
+
+  getFolderDiskPath: (id: number) => request<{ path: string; name: string }>(`/api/folders/${id}/disk-path`),
 
   upload: (file: File, folder_id: number | null, comment = '', new_file = false) => {
     const fd = new FormData()
@@ -253,7 +257,12 @@ export const api = {
     return resp.blob()
   },
 
+  request: <T>(path: string, init?: RequestInit) => request<T>(path, init),
+
   downloadUrl: (id: number, version?: number) => `/api/files/${id}/download${version ? `?version=${version}` : ''}`,
   previewUrl: (id: number, version?: number) => `/api/files/${id}/preview${version ? `?version=${version}` : ''}`,
   dxfUrl: (id: number, version?: number) => `/api/files/${id}/dxf${version ? `?version=${version}` : ''}`,
+  archiveListUrl: (id: number, version?: number) => `/api/files/${id}/archive-list${version ? `?version=${version}` : ''}`,
+  archiveEntryUrl: (id: number, path: string, version?: number) =>
+    `/api/files/${id}/archive-entry?path=${encodeURIComponent(path)}${version ? `&version=${version}` : ''}`,
 }

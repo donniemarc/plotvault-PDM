@@ -3,19 +3,28 @@ import { ref, onMounted } from 'vue'
 import { DEFAULT_SERVER, getConfig, setConfig } from '../api'
 import { themeMode, setThemeMode, type ThemeMode } from '../theme'
 import { getVersion } from '@tauri-apps/api/app'
+import { checkForUpdates, getDownloadUrl, type UpdateInfo } from '../updater'
+import { open } from '@tauri-apps/plugin-shell'
+
+const NAS_ROOT_KEY = 'plotvault_pdm_nas_root'
 
 const emit = defineEmits<{ saved: [] }>()
 
 const url = ref(getConfig().url || DEFAULT_SERVER)
 const token = ref(getConfig().token)
+const nasRoot = ref(localStorage.getItem(NAS_ROOT_KEY) || '')
 const testing = ref(false)
 const result = ref<{ ok: boolean; msg: string } | null>(null)
 const appVersion = ref('')
+const hasUpdate = ref(false)
+const isCheckingUpdate = ref(false)
+const updateInfo = ref<UpdateInfo | null>(null)
 
 const themeOptions: { value: ThemeMode; label: string; desc: string }[] = [
   { value: 'system', label: '跟随系统', desc: '与操作系统外观保持一致' },
   { value: 'light', label: '白天', desc: '明亮清爽，适合白天使用' },
   { value: 'dark', label: '晚上', desc: '沉浸深色，适合夜间审图' },
+  { value: 'green', label: '护眼', desc: '绿色调护眼，减少视觉疲劳' },
 ]
 
 onMounted(async () => {
@@ -23,6 +32,16 @@ onMounted(async () => {
     appVersion.value = await getVersion()
   } catch {
     appVersion.value = 'unknown'
+  }
+  
+  try {
+    const update = await checkForUpdates()
+    if (update) {
+      hasUpdate.value = true
+      updateInfo.value = update
+    }
+  } catch (error) {
+    console.error('检查更新失败:', error)
   }
 })
 
@@ -58,8 +77,39 @@ async function test() {
 
 function save() {
   setConfig({ url: url.value, token: token.value })
+  localStorage.setItem(NAS_ROOT_KEY, nasRoot.value.trim())
   result.value = { ok: true, msg: '已保存' }
   emit('saved')
+}
+
+async function checkUpdate() {
+  isCheckingUpdate.value = true
+  try {
+    const update = await checkForUpdates()
+    if (update) {
+      hasUpdate.value = true
+      updateInfo.value = update
+    } else {
+      hasUpdate.value = false
+      updateInfo.value = null
+      result.value = { ok: true, msg: '已是最新版本' }
+    }
+  } catch (error) {
+    result.value = { ok: false, msg: '检查更新失败' }
+  } finally {
+    isCheckingUpdate.value = false
+  }
+}
+
+async function goToDownload() {
+  if (updateInfo.value) {
+    const url = getDownloadUrl(updateInfo.value)
+    await open(url)
+  }
+}
+
+function formatChangelog(text: string) {
+  return text.replace(/\n/g, '<br>')
 }
 
 
@@ -82,6 +132,11 @@ function save() {
         <span>API Token（可选）</span>
         <input v-model="token" type="password" placeholder="未设置则不填" />
         <div class="dim small">与 docker-compose 中 API_TOKEN 保持一致</div>
+      </label>
+      <label class="field">
+        <span>NAS 文件映射路径（可选）</span>
+        <input v-model="nasRoot" type="text" placeholder="如 Z:\" />
+        <div class="dim small">SMB 映射到本地的盘符路径，用于右键打开文件所在文件夹</div>
       </label>
 
       <div class="actions">
@@ -141,7 +196,7 @@ function save() {
             <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" />
           </svg>
           <svg
-            v-else
+            v-else-if="o.value === 'dark'"
             class="opt-ico"
             viewBox="0 0 16 16"
             width="16"
@@ -154,6 +209,22 @@ function save() {
             aria-hidden="true"
           >
             <path d="M13.5 9.2A5.5 5.5 0 1 1 6.8 2.5a4.5 4.5 0 0 0 6.7 6.7z" />
+          </svg>
+          <svg
+            v-else
+            class="opt-ico"
+            viewBox="0 0 16 16"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M8 1.5v13M4 4l4-2.5 4 2.5M4 12l4 2.5 4-2.5" />
+            <circle cx="8" cy="7" r="2" />
           </svg>
           <span class="theme-option-text">
             <b>{{ o.label }}</b>
@@ -179,6 +250,23 @@ function save() {
           <span class="about-label">产品描述</span>
           <span class="about-value">轻量级个人 NAS 图纸文档管理系统</span>
         </div>
+        <div class="about-row">
+          <span class="about-label">检查更新</span>
+          <div class="update-wrapper">
+            <button @click="checkUpdate" :disabled="isCheckingUpdate" class="check-update-btn">
+              {{ isCheckingUpdate ? '检查中...' : '检查更新' }}
+            </button>
+            <span v-if="hasUpdate" class="update-dot" />
+          </div>
+        </div>
+      </div>
+      
+      <div v-if="updateInfo" class="update-info">
+        <p class="update-title">发现新版本: <strong>{{ updateInfo.version }}</strong></p>
+        <div class="changelog" v-html="formatChangelog(updateInfo.changelog)" />
+        <button @click="goToDownload" class="download-btn">
+          前往下载
+        </button>
       </div>
     </div>
   </div>
@@ -190,13 +278,15 @@ function save() {
   overflow: auto;
   padding: 32px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 16px;
   align-items: flex-start;
 }
 .card {
-  width: 100%;
-  max-width: 520px;
+  flex: 1 1 480px;
+  max-width: 600px;
+  min-width: 380px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -301,5 +391,69 @@ function save() {
 }
 .about-value {
   font-weight: 500;
+}
+.update-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.check-update-btn {
+  padding: 6px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  transition: background var(--transition-fast);
+}
+.check-update-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.check-update-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.update-dot {
+  width: 8px;
+  height: 8px;
+  background: #ff4d4f;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.update-info {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.update-title {
+  margin: 0 0 8px;
+  color: var(--accent);
+}
+.changelog {
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  line-height: 1.6;
+  max-height: 120px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.download-btn {
+  padding: 8px 16px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 500;
+  transition: opacity var(--transition-fast);
+}
+.download-btn:hover {
+  opacity: 0.9;
 }
 </style>

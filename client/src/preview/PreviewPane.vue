@@ -2,7 +2,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { api, ApiError } from '../api'
 import type { FileMeta, VersionInfo } from '../types'
-import { isImage, isText } from '../utils'
+import { isImage, isText, isArchive } from '../utils'
 import DxfViewer from './DxfViewer.vue'
 import StlViewer from './StlViewer.vue'
 import StepViewer from './StepViewer.vue'
@@ -10,10 +10,11 @@ import ThreeMfViewer from './ThreeMfViewer.vue'
 import PdfViewer from './PdfViewer.vue'
 import ImageViewer from './ImageViewer.vue'
 import TextViewer from './TextViewer.vue'
+import ArchiveViewer from './ArchiveViewer.vue'
 
 const props = defineProps<{ file: FileMeta | null; version?: number }>()
 
-const kind = ref<'dxf' | 'stl' | 'step' | 'iges' | '3mf' | 'pdf' | 'image' | 'text' | 'none'>('none')
+const kind = ref<'dxf' | 'stl' | 'step' | 'iges' | '3mf' | 'pdf' | 'image' | 'text' | 'archive' | 'none'>('none')
 const dxfText = ref('')
 const stlBuffer = ref<ArrayBuffer | null>(null)
 const stepBuffer = ref<ArrayBuffer | null>(null)
@@ -21,6 +22,7 @@ const threeMfBuffer = ref<ArrayBuffer | null>(null)
 const pdfUrl = ref('')
 const imgUrl = ref('')
 const text = ref('')
+const archiveEntries = ref<any[]>([])
 const loading = ref(false)
 const err = ref('')
 
@@ -36,6 +38,7 @@ function clear() {
   pdfUrl.value = ''
   imgUrl.value = ''
   text.value = ''
+  archiveEntries.value = []
   err.value = ''
 }
 
@@ -143,6 +146,20 @@ async function load() {
     }
     return
   }
+
+  if (isArchive(ext)) {
+    kind.value = 'archive'
+    loading.value = true
+    try {
+      const resp = await api.request<{ entries: any[] }>(api.archiveListUrl(file.id, ver))
+      archiveEntries.value = resp.entries || []
+    } catch (e: any) {
+      err.value = (e as ApiError)?.message || String(e)
+    } finally {
+      loading.value = false
+    }
+    return
+  }
 }
 
 watch(() => [props.file?.id, props.version], load, { immediate: true })
@@ -162,6 +179,7 @@ onBeforeUnmount(clear)
       <PdfViewer v-if="kind === 'pdf' && pdfUrl" :url="pdfUrl" />
       <ImageViewer v-if="kind === 'image' && imgUrl" :url="imgUrl" :name="file?.name || ''" />
       <TextViewer v-if="kind === 'text' && text !== undefined" :text="text" />
+      <ArchiveViewer v-if="kind === 'archive' && archiveEntries.length" :entries="archiveEntries" :file-id="file?.id || 0" :version="version" />
       <div v-if="kind === 'none' && !loading" class="hint">该文件类型暂不支持预览，可直接下载</div>
     </template>
   </div>

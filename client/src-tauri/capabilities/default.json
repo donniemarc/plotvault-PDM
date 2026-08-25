@@ -8,6 +8,29 @@
     "core:window:allow-set-theme",
     "dialog:default",
     "fs:default",
+    "opener:default",
+    "opener:allow-open-url",
+    "shell:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "powershell",
+          "cmd": "powershell",
+          "args": true
+        },
+        {
+          "name": "cmd",
+          "cmd": "cmd",
+          "args": true
+        },
+        {
+          "name": "explorer",
+          "cmd": "explorer",
+          "args": true
+        }
+      ]
+    },
     {
       "identifier": "fs:allow-write-file",
       "allow": [{ "path": "**" }]

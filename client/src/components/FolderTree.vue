@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import type { Folder } from '../types'
+import { getFilesFromDropEvent } from '../utils'
 
 const props = defineProps<{
   folders: Folder[]
@@ -16,6 +17,7 @@ const emit = defineEmits<{
   'drop-files': [folderId: number | null, files: File[]]
   'move-folder': [folderId: number, targetParentId: number | null]
   'move-files': [fileIds: number[], targetFolderId: number | null]
+  'open-folder': [folderId: number | null]
 }>()
 
 // 标准逐层展开：打开默认展开根节点显示一级目录，子级点击再展开
@@ -23,6 +25,34 @@ const rootExpanded = ref(true)
 const expanded = ref<Set<number>>(new Set())
 const dragOverId = ref<number | 'root' | null>(null)
 const dragSource = ref<{ type: 'folder' | 'files'; id: number | number[] } | null>(null)
+
+// 右键菜单
+const contextMenu = ref<{ x: number; y: number; folderId: number | null; folderName: string; folder: Folder | null } | null>(null)
+
+function onContextMenu(e: MouseEvent, folderId: number | null, folderName: string, folder: Folder | null) {
+  e.preventDefault()
+  contextMenu.value = { x: e.clientX, y: e.clientY, folderId, folderName, folder }
+}
+
+function closeContextMenu() {
+  contextMenu.value = null
+}
+
+function ctxAction(action: string) {
+  if (!contextMenu.value) return
+  const { folderId, folder } = contextMenu.value
+  closeContextMenu()
+  if (action === 'open-folder') emit('open-folder', folderId)
+  else if (action === 'new-folder') emit('new-folder', folderId)
+  else if (action === 'delete' && folder) emit('delete', folder)
+}
+
+function onGlobalClick() {
+  closeContextMenu()
+}
+
+onMounted(() => document.addEventListener('click', onGlobalClick))
+onBeforeUnmount(() => document.removeEventListener('click', onGlobalClick))
 
 // guides 已移除：用缩进展示层级
 const rows = computed(() => {
@@ -57,7 +87,7 @@ function isExpanded(folder: Folder) {
   return expanded.value.has(folder.id)
 }
 
-function onDropNode(e: DragEvent, folderId: number | null) {
+async function onDropNode(e: DragEvent, folderId: number | null) {
   dragOverId.value = null
   // 检查是否是内部拖拽（文件夹或文件移动）
   const dt = e.dataTransfer
@@ -81,10 +111,10 @@ function onDropNode(e: DragEvent, folderId: number | null) {
       return
     }
   }
-  // 外部文件拖入上传
-  const files = dt?.files
-  if (!files || !files.length) return
-  emit('drop-files', folderId, Array.from(files))
+  // 外部文件拖入上传（支持文件夹递归读取）
+  const files = await getFilesFromDropEvent(e)
+  if (!files.length) return
+  emit('drop-files', folderId, files)
 }
 
 function onDragStartFolder(e: DragEvent, folderId: number) {
@@ -121,14 +151,17 @@ defineExpose({ expandTo })
 </script>
 
 <template>
-  <div class="tree">
+  <div class="tree" @contextmenu.prevent>
     <div
       class="node"
-      :class="{ selected: selected === null }"
+      :class="{ selected: selected === null, 'drag-over': dragOverId === null && dragSource }"
       style="padding-left: 8px"
       tabindex="0"
       @click="emit('select', null)"
       @keydown.enter.prevent="emit('select', null)"
+      @dragover.prevent="dragOverId = null"
+      @drop.stop="onDropNode($event, null)"
+      @contextmenu="onContextMenu($event, null, rootName, null)"
     >
       <span
         class="chevron"
@@ -163,6 +196,7 @@ defineExpose({ expandTo })
       @drop.stop="onDropNode($event, r.folder.id)"
       @dragstart="onDragStartFolder($event, r.folder.id)"
       @dragend="onDragEnd"
+      @contextmenu="onContextMenu($event, r.folder.id, r.folder.name, r.folder)"
     >
       <span class="chevron" @click.stop="toggle(r.folder)" :class="{ 'no-child': !r.hasChildren }">
         {{ r.hasChildren ? (isExpanded(r.folder) ? '▾' : '▸') : '' }}
@@ -175,6 +209,30 @@ defineExpose({ expandTo })
         <button class="mini" title="删除" @click.stop="emit('delete', r.folder)">🗑</button>
       </span>
     </div>
+
+    <!-- 右键菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="contextMenu"
+        class="context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+        @click.stop
+      >
+        <div class="ctx-item" @click="ctxAction('open-folder')">
+          <span class="ctx-ico">📂</span> 打开文件夹
+        </div>
+        <div class="ctx-sep" />
+        <div class="ctx-item" @click="ctxAction('new-folder')">
+          <span class="ctx-ico">📁</span> 新建子文件夹
+        </div>
+        <template v-if="contextMenu.folder">
+          <div class="ctx-sep" />
+          <div class="ctx-item ctx-danger" @click="ctxAction('delete')">
+            <span class="ctx-ico">🗑</span> 删除
+          </div>
+        </template>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -246,5 +304,39 @@ defineExpose({ expandTo })
 .mini:hover {
   background: var(--bg-active);
   color: var(--text);
+}
+
+/* 右键菜单 */
+.context-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 160px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: 4px 0;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.ctx-item:hover {
+  background: var(--bg-hover);
+}
+.ctx-ico {
+  font-size: 13px;
+  width: 18px;
+  text-align: center;
+}
+.ctx-sep {
+  height: 1px;
+  background: var(--border-faint);
+  margin: 4px 0;
 }
 </style>

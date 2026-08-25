@@ -4,9 +4,11 @@ import { checkServer, getConfig } from './api'
 import FileBrowser from './views/FileBrowser.vue'
 import SettingsView from './views/SettingsView.vue'
 import { themeMode, setThemeMode, type ThemeMode } from './theme'
+import { checkForUpdates } from './updater'
 
 const view = ref<'browser' | 'settings'>('browser')
 const connected = ref<boolean | null>(null)
+const hasUpdate = ref(false)
 
 const toasts = ref<{ id: number; msg: string; type: string }[]>([])
 let toastId = 0
@@ -24,6 +26,7 @@ const themeOptions: { value: ThemeMode; label: string; title: string }[] = [
   { value: 'system', label: '跟随系统', title: '跟随系统' },
   { value: 'light', label: '白天', title: '白天' },
   { value: 'dark', label: '晚上', title: '晚上' },
+  { value: 'green', label: '护眼', title: '护眼模式' },
 ]
 
 async function refreshConn() {
@@ -39,7 +42,18 @@ function onSaved() {
   refreshConn()
 }
 
-onMounted(refreshConn)
+onMounted(async () => {
+  await refreshConn()
+  
+  try {
+    const update = await checkForUpdates()
+    if (update) {
+      hasUpdate.value = true
+    }
+  } catch (error) {
+    console.error('启动时检查更新失败:', error)
+  }
+})
 </script>
 
 <template>
@@ -114,7 +128,7 @@ onMounted(refreshConn)
             <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" />
           </svg>
           <svg
-            v-else
+            v-else-if="o.value === 'dark'"
             class="opt-ico"
             viewBox="0 0 16 16"
             width="14"
@@ -128,12 +142,31 @@ onMounted(refreshConn)
           >
             <path d="M13.5 9.2A5.5 5.5 0 1 1 6.8 2.5a4.5 4.5 0 0 0 6.7 6.7z" />
           </svg>
+          <svg
+            v-else
+            class="opt-ico"
+            viewBox="0 0 16 16"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M8 1.5v13M4 4l4-2.5 4 2.5M4 12l4 2.5 4-2.5" />
+            <circle cx="8" cy="7" r="2" />
+          </svg>
           <span class="opt-label">{{ o.label }}</span>
         </button>
       </div>
       <div class="top-ops">
         <button class="nav-btn" :class="{ active: view === 'browser' }" @click="view = 'browser'">文件</button>
-        <button class="nav-btn" :class="{ active: view === 'settings' }" @click="view = 'settings'">设置</button>
+        <button class="nav-btn update-available" :class="{ active: view === 'settings' }" @click="view = 'settings'">
+          设置
+          <span v-if="hasUpdate" class="update-dot" />
+        </button>
       </div>
     </header>
     <main class="app-main">
@@ -271,6 +304,23 @@ onMounted(refreshConn)
   background: var(--bg-active);
   color: var(--text);
   font-weight: 600;
+}
+.update-available {
+  position: relative;
+}
+.update-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  background: #ff4d4f;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 .app-main {
   flex: 1;

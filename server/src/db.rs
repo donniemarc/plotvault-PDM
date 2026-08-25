@@ -1,4 +1,5 @@
 use sqlx::{FromRow, PgPool, Row};
+use std::collections::HashSet;
 
 // 列类型用 TEXT + to_char(now()) 生成 'YYYY-MM-DD HH24:MI:SS' 字符串，
 // 与旧 SQLite datetime('now','localtime') 输出格式一致，客户端零改动。
@@ -117,10 +118,24 @@ pub async fn find_folder_by_name(
 }
 
 /// 从根到该文件夹的名称路径（不含根虚拟节点），顺序 根→子
+/// 包含循环检测：如果发现 parent_id 循环引用，立即终止并返回已收集的路径
 pub async fn folder_path(pool: &PgPool, folder_id: i64) -> sqlx::Result<Vec<String>> {
     let mut parts = Vec::new();
     let mut cur = Some(folder_id);
+    let mut visited = HashSet::new(); // 循环检测
+    const MAX_DEPTH: usize = 50; // 最大深度限制
+
     while let Some(id) = cur {
+        // 循环检测：如果已访问过此 ID，说明存在循环引用
+        if !visited.insert(id) {
+            eprintln!("warning: folder_path() detected cycle at folder_id={id}, breaking");
+            break;
+        }
+        // 深度限制
+        if parts.len() >= MAX_DEPTH {
+            eprintln!("warning: folder_path() reached max depth {MAX_DEPTH} at folder_id={id}");
+            break;
+        }
         match get_folder(pool, id).await? {
             Some(f) => {
                 parts.push(f.name);

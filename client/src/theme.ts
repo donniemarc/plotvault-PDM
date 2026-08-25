@@ -1,8 +1,8 @@
 import { ref, type Ref } from 'vue'
 import { isTauri } from './utils'
 
-export type ThemeMode = 'system' | 'light' | 'dark'
-export type ResolvedTheme = 'light' | 'dark'
+export type ThemeMode = 'system' | 'light' | 'dark' | 'green'
+export type ResolvedTheme = 'light' | 'dark' | 'green'
 export const THEME_STORAGE_KEY = 'plotvault_pdm_theme'
 
 export const themeMode: Ref<ThemeMode> = ref(getStoredMode())
@@ -13,7 +13,7 @@ const listeners = new Set<(theme: ResolvedTheme) => void>()
 function getStoredMode(): ThemeMode {
   try {
     const v = localStorage.getItem(THEME_STORAGE_KEY)
-    if (v === 'light' || v === 'dark' || v === 'system') return v
+    if (v === 'light' || v === 'dark' || v === 'system' || v === 'green') return v
   } catch {
     /* ignore */
   }
@@ -21,7 +21,7 @@ function getStoredMode(): ThemeMode {
 }
 
 export function resolveTheme(mode: ThemeMode): ResolvedTheme {
-  if (mode === 'light' || mode === 'dark') return mode
+  if (mode === 'light' || mode === 'dark' || mode === 'green') return mode
   try {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   } catch {
@@ -66,7 +66,8 @@ async function syncTauri(mode: ThemeMode) {
   if (!isTauri()) return
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
-    await getCurrentWindow().setTheme(mode === 'system' ? null : mode)
+    const tauriTheme = mode === 'green' ? 'dark' : mode === 'system' ? null : mode
+    await getCurrentWindow().setTheme(tauriTheme)
   } catch {
     /* 静默降级：仅原生标题栏不联动 */
   }

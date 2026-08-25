@@ -3,13 +3,14 @@ import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../api'
 import type { FileMeta, Folder } from '../types'
 import { getConfig } from '../api'
-import { saveBlob } from '../utils'
+import { saveBlob, getFilesFromDropEvent } from '../utils'
 import FolderTree from '../components/FolderTree.vue'
 import FileList from '../components/FileList.vue'
 import UploadDialog from '../components/UploadDialog.vue'
 import VersionPanel from '../components/VersionPanel.vue'
 import PreviewPane from '../preview/PreviewPane.vue'
-import { fitActiveViewer, zoomActiveViewer } from '../preview/three'
+import { fitActiveViewer, zoomActiveViewer, setZoom } from '../preview/three'
+import JSZip from 'jszip'
 
 const toast = inject<(msg: string, type?: string) => void>('toast') || (() => {})
 
@@ -79,6 +80,14 @@ const confirmModal = ref<{ type: 'file' | 'folder' | 'files'; id: number; name: 
 const dragOver = ref(false)
 
 const treeRef = ref<InstanceType<typeof FolderTree> | null>(null)
+
+// ESC 键关闭预览
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    if (previewFile.value) { previewFile.value = null; return }
+    if (versionPanelFile.value) { versionPanelFile.value = null; return }
+  }
+}
 
 // ---------- 预览面板：可拖拽调宽 / 全屏 ----------
 const previewFullscreen = ref(false)
@@ -154,6 +163,24 @@ const visibleFiles = computed(() => {
   if (searchOpen.value) return searchResults.value
   return files.value.filter((f) => f.folder_id === selectedFolder.value)
 })
+
+// 数据统计（根目录显示）
+const stats = computed(() => {
+  const fileCount = files.value.length
+  const folderCount = folders.value.length
+  const totalSize = files.value.reduce((sum, f) => sum + (f.size || 0), 0)
+  return { fileCount, folderCount, totalSize }
+})
+
+// 最近修改的文件（按更新时间排序，取前5个）
+const recentFiles = computed(() => {
+  return [...files.value]
+    .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
+    .slice(0, 5)
+})
+
+// 是否是根目录
+const isRoot = computed(() => selectedFolder.value === null && !searchOpen.value)
 
 // 当前目录已有文件名（用于上传时重复检测）
 const currentDirNames = computed(() =>
@@ -322,6 +349,62 @@ async function onMoveFiles(fileIds: number[], targetFolderId: number | null) {
   }
 }
 
+// ---------- 打开文件所在文件夹 ----------
+const NAS_ROOT_KEY = 'plotvault_pdm_nas_root'
+
+function getLocalPath(diskPath: string): string {
+  const nasRoot = localStorage.getItem(NAS_ROOT_KEY)?.trim() || ''
+  const libraryPrefix = '/data/library/'
+  if (diskPath.startsWith(libraryPrefix)) {
+    const relative = diskPath.slice(libraryPrefix.length).replace(/\//g, '\\')
+    return nasRoot.replace(/[\\/]+$/, '') + (relative ? '\\' + relative : '')
+  }
+  return nasRoot.replace(/[\\/]+$/, '')
+}
+
+async function openFileFolder(file: FileMeta) {
+  const nasRoot = localStorage.getItem(NAS_ROOT_KEY)?.trim()
+  if (!nasRoot) {
+    toast('请先在设置中配置「NAS 文件映射路径」', 'error')
+    return
+  }
+  try {
+    const resp = await api.getFileDiskPath(file.id)
+    const localPath = getLocalPath(resp.path)
+    console.log('[openFileFolder] server:', resp.path, '→ local:', localPath)
+    const { Command } = await import('@tauri-apps/plugin-shell')
+    await Command.create('powershell', ['-Command', `explorer "${localPath}"`]).execute()
+  } catch (e: any) {
+    console.error('[openFileFolder] error:', e)
+    toast(`打开失败: ${e?.message || e}`, 'error')
+  }
+}
+
+async function openFolderFromTree(folderId: number | null) {
+  const nasRoot = localStorage.getItem(NAS_ROOT_KEY)?.trim()
+  if (!nasRoot) {
+    toast('请先在设置中配置「NAS 文件映射路径」', 'error')
+    return
+  }
+  try {
+    if (folderId === null) {
+      // 根目录：直接打开映射路径
+      const localPath = nasRoot.replace(/[\\/]+$/, '')
+      const { Command } = await import('@tauri-apps/plugin-shell')
+      await Command.create('powershell', ['-Command', `explorer "${localPath}"`]).execute()
+      return
+    }
+    const resp = await api.getFolderDiskPath(folderId)
+    const localPath = getLocalPath(resp.path)
+    console.log('[openFolderFromTree] server:', resp.path, '→ local:', localPath)
+    const { Command } = await import('@tauri-apps/plugin-shell')
+    await Command.create('powershell', ['-Command', `explorer "${localPath}"`]).execute()
+  } catch (e: any) {
+    console.error('[openFolderFromTree] error:', e)
+    toast(`打开失败: ${e?.message || e}`, 'error')
+  }
+}
+
 function removeFile(f: FileMeta) {
   confirmModal.value = { type: 'file', id: f.id, name: f.name }
 }
@@ -333,6 +416,48 @@ function onContentClick(e: Event) {
   if (target.classList.contains('content') || target.classList.contains('list-wrap') || target.classList.contains('empty')) {
     previewFile.value = null
     versionPanelFile.value = null
+  }
+}
+
+async function downloadSelected() {
+  const ids = Array.from(selectedIds.value)
+  if (!ids.length) return
+  const filesToDownload = ids.map(id => filesById.value.get(id)).filter((f): f is FileMeta => !!f)
+  if (!filesToDownload.length) return
+
+  // 如果只有一个文件，直接下载
+  if (filesToDownload.length === 1) {
+    await download(filesToDownload[0])
+    return
+  }
+
+  // 多个文件：打包成zip下载
+  try {
+    const zip = new JSZip()
+    const fileBlobs = await Promise.all(
+      filesToDownload.map(async (f) => {
+        const blob = await api.fetchBlob(api.downloadUrl(f.id))
+        return { file: f, blob }
+      })
+    )
+    
+    // 添加文件到zip
+    for (const { file, blob } of fileBlobs) {
+      zip.file(file.name, blob)
+    }
+    
+    // 生成zip文件
+    const zipBlob = await zip.generateAsync({ type: 'blob' })
+    
+    // 保存zip文件
+    const zipName = `download_${new Date().toISOString().slice(0, 10)}.zip`
+    const saved = await saveBlob(zipName, zipBlob)
+    
+    if (saved) {
+      toast(`已打包下载 ${filesToDownload.length} 个文件`, 'ok')
+    }
+  } catch (e: any) {
+    toast(e?.message || '打包下载失败', 'error')
   }
 }
 
@@ -424,7 +549,7 @@ function onWindowDragLeave(e: DragEvent) {
   }
 }
 
-function onWindowDrop(e: DragEvent) {
+async function onWindowDrop(e: DragEvent) {
   dragOver.value = false
   document.body.classList.remove('file-dragging')
   const dt = e.dataTransfer
@@ -437,7 +562,8 @@ function onWindowDrop(e: DragEvent) {
   }
   // 外部文件拖入
   e.preventDefault()
-  if (!dt.files?.length) return
+  const files = await getFilesFromDropEvent(e)
+  if (!files.length) return
   // 左侧树的节点有自己的 drop 处理（@drop.stop），此处放行，不重复打开对话框
   const target = e.target as HTMLElement | null
   if (target && target.closest('.tree')) return
@@ -445,7 +571,7 @@ function onWindowDrop(e: DragEvent) {
     toast('请先在文件树中选择目标文件夹', 'error')
     return
   }
-  droppedFiles.value = Array.from(dt.files)
+  droppedFiles.value = files
   uploadOpen.value = true
 }
 
@@ -458,6 +584,7 @@ onMounted(() => {
   // 记忆的面板宽度可能超出当前窗口（换屏幕/缩窗后），先钳制到合理范围
   rightPanelWidth.value = clampPanelW(rightPanelWidth.value)
   load()
+  window.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onWinResize)
   window.addEventListener('dragover', onWindowDragOver)
   window.addEventListener('dragleave', onWindowDragLeave)
@@ -474,6 +601,7 @@ function onWinResize() {
 }
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('resize', onWinResize)
   window.removeEventListener('dragover', onWindowDragOver)
   window.removeEventListener('dragleave', onWindowDragLeave)
@@ -497,6 +625,7 @@ onBeforeUnmount(() => {
         @drop-files="onDropToFolder"
         @move-folder="onMoveFolder"
         @move-files="onMoveFiles"
+        @open-folder="openFolderFromTree"
       />
     </aside>
 
@@ -521,6 +650,7 @@ onBeforeUnmount(() => {
             <button v-if="searchOpen" class="search-clear" @click="clearSearch">✕</button>
             <button v-else class="search-btn" @click="doSearch">搜索</button>
           </div>
+          <button class="btn-refresh" title="刷新文件列表" @click="load()">刷新</button>
           <button
             class="primary"
             :disabled="!canUploadTo(selectedFolder)"
@@ -533,6 +663,7 @@ onBeforeUnmount(() => {
 
       <div v-if="selectedIds.size > 0" class="batch-bar">
         <span class="batch-count">已选 {{ selectedIds.size }} 项</span>
+        <button class="primary" @click="downloadSelected">下载</button>
         <button class="primary" @click="openMoveBatch">移动</button>
         <button class="danger-solid" @click="removeFiles">删除</button>
         <button @click="clearSelection">取消选择</button>
@@ -541,10 +672,14 @@ onBeforeUnmount(() => {
       <div class="content" @click="onContentClick">
         <FileList
           :files="visibleFiles"
+          :folders="folders"
           :previewing-id="previewFile?.id ?? null"
           :selected-ids="selectedIds"
           :all-selected="allSelected"
           :some-selected="someSelected"
+          :is-root="isRoot"
+          :stats="stats"
+          :recent-files="recentFiles"
           @preview="openPreview"
           @download="download"
           @versions="openVersions"
@@ -553,6 +688,7 @@ onBeforeUnmount(() => {
           @move="openMove"
           @toggle-select="toggleSelect"
           @select-all="toggleSelectAll"
+          @open-folder="openFileFolder"
         />
       </div>
     </main>
@@ -573,8 +709,9 @@ onBeforeUnmount(() => {
         <span class="dim">v{{ previewVersion ?? previewFile.current_version }}</span>
         <span class="preview-tools">
           <button class="tool-btn" title="适应窗口" @click="fitActiveViewer">适应</button>
-          <button class="tool-btn" title="放大" @click="zoomActiveViewer(1 / 1.25)">＋</button>
-          <button class="tool-btn" title="缩小" @click="zoomActiveViewer(1.25)">－</button>
+          <button class="tool-btn" title="缩放25%" @click="setZoom(0.25)">25%</button>
+          <button class="tool-btn" title="缩放50%" @click="setZoom(0.5)">50%</button>
+          <button class="tool-btn" title="缩放85%" @click="setZoom(0.85)">85%</button>
           <button class="tool-btn" :title="previewFullscreen ? '退出全屏' : '全屏预览'" @click="toggleFullscreen">⛶</button>
         </span>
         <button class="close" title="关闭预览" @click="previewFile = null">✕</button>
@@ -773,6 +910,20 @@ onBeforeUnmount(() => {
 .search-box .search-btn,
 .search-box .search-clear {
   flex-shrink: 0;
+}
+.btn-refresh {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 3px 10px;
+  font-size: var(--font-sm);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.btn-refresh:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 .content {
   flex: 1;
