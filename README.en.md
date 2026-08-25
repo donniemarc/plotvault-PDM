@@ -4,6 +4,8 @@ A lightweight, self-hosted drawing and document management system. Deploy the ba
 
 中文版本: [README.md](README.md)
 
+---
+
 ## Why I Built This
 
 As a 3D printing enthusiast, I had hundreds of model files scattered across my hard drive — the same bracket redesigned five or six times, with no idea which was the final version. Finding a part I downloaded a month ago meant digging through endless folders. Design iterations were even worse: after resizing a model, the old version was simply overwritten, and I had to redraw from scratch if I wanted to go back.
