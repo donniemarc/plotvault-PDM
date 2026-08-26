@@ -92,6 +92,17 @@ pub async fn list_files(pool: &PgPool) -> sqlx::Result<Vec<FileMeta>> {
     .await?)
 }
 
+/// 某文件夹（folder_id=None=根目录）下的全部文件
+pub async fn list_files_by_folder(pool: &PgPool, folder_id: Option<i64>) -> sqlx::Result<Vec<FileMeta>> {
+    Ok(sqlx::query_as::<_, FileMeta>(
+        "SELECT id, folder_id, name, ext, size, description, current_version, created_at, updated_at
+         FROM files WHERE folder_id IS NOT DISTINCT FROM $1 ORDER BY name",
+    )
+    .bind(folder_id)
+    .fetch_all(pool)
+    .await?)
+}
+
 pub async fn create_folder(pool: &PgPool, name: &str, parent_id: Option<i64>) -> sqlx::Result<i64> {
     let row = sqlx::query("INSERT INTO folders (name, parent_id) VALUES ($1, $2) RETURNING id")
         .bind(name)

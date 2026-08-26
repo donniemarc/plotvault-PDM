@@ -7,6 +7,7 @@ import DashboardChart from './DashboardChart.vue'
 const props = defineProps<{
   files: FileMeta[]
   folders?: Folder[]
+  childFolders?: Folder[]
   previewingId?: number | null
   selectedIds?: Set<number>
   allSelected?: boolean
@@ -23,9 +24,11 @@ const emit = defineEmits<{
   delete: [file: FileMeta]
   move: [file: FileMeta]
   upload: []
+  'new-folder': []
   'toggle-select': [id: number]
   'select-all': [checked: boolean]
   'open-folder': [file: FileMeta]
+  'select-folder': [folderId: number]
 }>()
 
 const draggingId = ref<number | null>(null)
@@ -119,15 +122,36 @@ function onDragEndFile() {
     </div>
     <!-- 普通目录空状态 -->
     <div class="empty" v-else-if="files.length === 0" @contextmenu.prevent @drop.prevent @dragover.prevent>
-      <template v-if="folders && folders.length > 0">
+      <!-- 有子文件夹：卡片展示，点击进入 -->
+      <template v-if="childFolders && childFolders.length > 0">
         <div class="empty-with-folders">
           <div class="empty-icon">📁</div>
-          <div class="empty-text">此文件夹没有文件，但包含 {{ folders.length }} 个子文件夹</div>
-          <div class="empty-hint">请从左侧文件树浏览子文件夹</div>
+          <div class="empty-text">此文件夹没有文件，包含 {{ childFolders.length }} 个子文件夹</div>
+          <div class="empty-hint">点击卡片进入子文件夹</div>
+        </div>
+        <div class="subfolder-grid">
+          <div
+            v-for="cf in childFolders"
+            :key="cf.id"
+            class="subfolder-card"
+            @click="emit('select-folder', cf.id)"
+            :title="cf.name"
+          >
+            <span class="subfolder-ico">📁</span>
+            <span class="subfolder-name">{{ cf.name }}</span>
+          </div>
         </div>
       </template>
+      <!-- 完全为空：提示 + 快捷按钮 -->
       <template v-else>
-        此目录为空，点击右上角「上传」添加文件
+        <div class="empty-with-folders">
+          <div class="empty-icon">📂</div>
+          <div class="empty-text">此目录为空</div>
+        </div>
+        <div class="empty-actions">
+          <button class="primary" @click="emit('upload')">上传文件</button>
+          <button @click="emit('new-folder')">新建文件夹</button>
+        </div>
       </template>
     </div>
     <table v-else class="file-table">
@@ -232,10 +256,14 @@ function onDragEndFile() {
 }
 .empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
+  padding: 40px;
+  gap: 24px;
   color: var(--text-dim);
+  overflow: auto;
 }
 .empty-with-folders {
   display: flex;
@@ -254,6 +282,44 @@ function onDragEndFile() {
 .empty-hint {
   font-size: var(--font-sm);
   color: var(--text-faint);
+}
+.empty-actions {
+  display: flex;
+  gap: 10px;
+}
+/* 子文件夹卡片网格 */
+.subfolder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  width: 100%;
+  max-width: 640px;
+}
+.subfolder-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.subfolder-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+.subfolder-ico {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.subfolder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
 }
 
 /* 欢迎页面 */

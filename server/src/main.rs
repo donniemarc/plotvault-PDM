@@ -135,6 +135,27 @@ async fn scan_library_to_db(state: &AppState) -> (usize, usize) {
                 }
             }
         }
+        // 双向校验：数据库有记录但磁盘文件已不存在（用户在 NAS 共享盘直接移动/删除）→ 清理幽灵记录
+        if let Ok(db_files) = db::list_files_by_folder(&state.db, parent_folder_id).await {
+            for f in db_files {
+                let Ok(Some(ver)) = db::get_version(&state.db, f.id, f.current_version).await else {
+                    continue;
+                };
+                let abs = state.data_dir.join(&ver.blob_path);
+                let exists = tokio::task::spawn_blocking(move || abs.exists())
+                    .await
+                    .unwrap_or(true);
+                if !exists {
+                    println!(
+                        "sync: removing ghost record id={} name=\"{}\" (disk missing: {})",
+                        f.id, f.name, ver.blob_path
+                    );
+                    if let Ok(paths) = db::delete_file(&state.db, f.id).await {
+                        storage::remove_blobs(state, &paths);
+                    }
+                }
+            }
+        }
     }
 
     println!("scan: scanning library directory...");

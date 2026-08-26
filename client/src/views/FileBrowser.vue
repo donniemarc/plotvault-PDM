@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../api'
 import type { FileMeta, Folder } from '../types'
 import { getConfig } from '../api'
@@ -9,7 +9,7 @@ import FileList from '../components/FileList.vue'
 import UploadDialog from '../components/UploadDialog.vue'
 import VersionPanel from '../components/VersionPanel.vue'
 import PreviewPane from '../preview/PreviewPane.vue'
-import { fitActiveViewer, zoomActiveViewer, setZoom } from '../preview/three'
+import { fitActiveViewer, zoomActiveViewer } from '../preview/three'
 import JSZip from 'jszip'
 
 const toast = inject<(msg: string, type?: string) => void>('toast') || (() => {})
@@ -53,6 +53,29 @@ const renameName = ref('')
 
 const moveModal = ref<{ files: FileMeta[] } | null>(null)
 const moveTarget = ref<number | 'root' | null>(null)
+
+const newFolderInput = ref<HTMLInputElement | null>(null)
+const renameInput = ref<HTMLInputElement | null>(null)
+
+// 移动弹窗：按层级展开的文件夹列表（用于缩进展示层级关系）
+const moveFolderRows = computed<{ folder: Folder; depth: number }[]>(() => {
+  const children = new Map<number, Folder[]>()
+  for (const f of folders.value) {
+    const key = f.parent_id ?? 0
+    if (!children.has(key)) children.set(key, [])
+    children.get(key)!.push(f)
+  }
+  const out: { folder: Folder; depth: number }[] = []
+  const walk = (pid: number, depth: number) => {
+    const list = children.get(pid) || []
+    list.forEach((f) => {
+      out.push({ folder: f, depth })
+      walk(f.id, depth + 1)
+    })
+  }
+  walk(0, 0)
+  return out
+})
 
 // 批量选择（复选框）
 const selectedIds = ref<Set<number>>(new Set())
@@ -200,6 +223,11 @@ const recentFiles = computed(() => {
     .slice(0, 5)
 })
 
+// 当前目录的直属子文件夹（用于空状态展示子文件夹卡片）
+const childFolders = computed(() =>
+  folders.value.filter((f) => f.parent_id === selectedFolder.value),
+)
+
 // 是否是根目录
 const isRoot = computed(() => selectedFolder.value === null && !searchOpen.value)
 
@@ -271,6 +299,7 @@ function openNewFolder(parentId: number | null) {
   newFolderParent.value = parentId
   newFolderName.value = ''
   newFolderOpen.value = true
+  nextTick(() => { newFolderInput.value?.focus() })
 }
 
 async function createFolder() {
@@ -290,6 +319,14 @@ async function createFolder() {
 function openRename(type: 'file' | 'folder' | 'root', id: number, name: string) {
   renameModal.value = { type, id, name }
   renameName.value = name
+  nextTick(() => {
+    const el = renameInput.value
+    if (el) {
+      el.focus()
+      const len = el.value.length
+      el.setSelectionRange(len, len)
+    }
+  })
 }
 
 async function doRename() {
@@ -644,7 +681,9 @@ onBeforeUnmount(() => {
       <FolderTree
         ref="treeRef"
         :folders="folders"
+        :files="files"
         :selected="selectedFolder"
+        :previewing-id="previewFile?.id ?? null"
         :root-name="rootName"
         @select="selectFolder"
         @new-folder="openNewFolder"
@@ -655,6 +694,7 @@ onBeforeUnmount(() => {
         @move-folder="onMoveFolder"
         @move-files="onMoveFiles"
         @open-folder="openFolderFromTree"
+        @select-file="openPreview"
       />
     </aside>
 
@@ -708,6 +748,7 @@ onBeforeUnmount(() => {
         <FileList
           :files="visibleFiles"
           :folders="folders"
+          :child-folders="childFolders"
           :previewing-id="previewFile?.id ?? null"
           :selected-ids="selectedIds"
           :all-selected="allSelected"
@@ -724,6 +765,9 @@ onBeforeUnmount(() => {
           @toggle-select="toggleSelect"
           @select-all="toggleSelectAll"
           @open-folder="openFileFolder"
+          @select-folder="selectFolder"
+          @upload="openUpload"
+          @new-folder="openNewFolder(selectedFolder)"
         />
       </div>
     </main>
@@ -744,9 +788,6 @@ onBeforeUnmount(() => {
         <span class="dim">v{{ previewVersion ?? previewFile.current_version }}</span>
         <span class="preview-tools">
           <button class="tool-btn" title="适应窗口" @click="fitActiveViewer">适应</button>
-          <button class="tool-btn" title="缩放25%" @click="setZoom(0.25)">25%</button>
-          <button class="tool-btn" title="缩放50%" @click="setZoom(0.5)">50%</button>
-          <button class="tool-btn" title="缩放85%" @click="setZoom(0.85)">85%</button>
           <button class="tool-btn" :title="previewFullscreen ? '退出全屏' : '全屏预览'" @click="toggleFullscreen">⛶</button>
         </span>
         <button class="close" title="关闭预览" @click="previewFile = null">✕</button>
@@ -771,6 +812,7 @@ onBeforeUnmount(() => {
       <div class="modal">
         <h3>新建文件夹</h3>
         <input
+          ref="newFolderInput"
           v-model="newFolderName"
           type="text"
           placeholder="文件夹名称"
@@ -788,6 +830,7 @@ onBeforeUnmount(() => {
       <div class="modal">
         <h3>重命名</h3>
         <input
+          ref="renameInput"
           v-model="renameName"
           type="text"
           style="width: 100%"
@@ -811,9 +854,10 @@ onBeforeUnmount(() => {
             <input v-model="moveTarget" type="radio" value="root" />
             {{ rootName }}（根目录）
           </label>
-          <label v-for="f in folders" :key="f.id" class="move-item">
-            <input v-model="moveTarget" type="radio" :value="f.id" />
-            {{ f.name }}
+          <label v-for="r in moveFolderRows" :key="r.folder.id" class="move-item" :style="{ paddingLeft: 12 + r.depth * 18 + 'px' }">
+            <span class="move-ico" :class="r.depth === 0 ? '' : 'child'">📁</span>
+            <input v-model="moveTarget" type="radio" :value="r.folder.id" />
+            {{ r.folder.name }}
           </label>
         </div>
         <div class="actions">
@@ -1120,6 +1164,13 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.move-ico {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.move-ico.child {
+  opacity: 0.6;
 }
 .confirm-head {
   display: flex;

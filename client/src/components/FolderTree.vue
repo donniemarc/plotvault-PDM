@@ -1,11 +1,30 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
-import type { Folder } from '../types'
-import { getFilesFromDropEvent } from '../utils'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import type { Folder, FileMeta } from '../types'
+import { getFilesFromDropEvent, fileBadge } from '../utils'
+
+const TREE_EXPANDED_KEY = 'plotvault_pdm_tree_expanded'
+
+function loadExpanded(): Set<number> {
+  try {
+    const raw = localStorage.getItem(TREE_EXPANDED_KEY)
+    if (raw) {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) return new Set(arr)
+    }
+  } catch { /* ignore */ }
+  return new Set()
+}
+
+function saveExpanded(s: Set<number>) {
+  localStorage.setItem(TREE_EXPANDED_KEY, JSON.stringify(Array.from(s)))
+}
 
 const props = defineProps<{
   folders: Folder[]
+  files: FileMeta[]
   selected: number | null
+  previewingId?: number | null
   rootName: string
 }>()
 const emit = defineEmits<{
@@ -18,13 +37,22 @@ const emit = defineEmits<{
   'move-folder': [folderId: number, targetParentId: number | null]
   'move-files': [fileIds: number[], targetFolderId: number | null]
   'open-folder': [folderId: number | null]
+  'select-file': [file: FileMeta]
 }>()
 
 // 标准逐层展开：打开默认展开根节点显示一级目录，子级点击再展开
 const rootExpanded = ref(true)
-const expanded = ref<Set<number>>(new Set())
+const expanded = ref<Set<number>>(loadExpanded())
 const dragOverId = ref<number | 'root' | null>(null)
 const dragSource = ref<{ type: 'folder' | 'files'; id: number | number[] } | null>(null)
+
+watch(expanded, (s) => saveExpanded(s))
+
+// 根节点是否有可展开内容（有子文件夹或根目录直属文件）
+const rootHasChildren = computed(() => {
+  if (props.folders.length > 0) return true
+  return props.files.some((f) => f.folder_id == null)
+})
 
 // 右键菜单
 const contextMenu = ref<{ x: number; y: number; folderId: number | null; folderName: string; folder: Folder | null } | null>(null)
@@ -44,6 +72,8 @@ function ctxAction(action: string) {
   closeContextMenu()
   if (action === 'open-folder') emit('open-folder', folderId)
   else if (action === 'new-folder') emit('new-folder', folderId)
+  else if (action === 'rename-root') emit('renameRoot')
+  else if (action === 'rename' && folder) emit('rename', folder)
   else if (action === 'delete' && folder) emit('delete', folder)
 }
 
@@ -62,21 +92,48 @@ const rows = computed(() => {
     if (!children.has(key)) children.set(key, [])
     children.get(key)!.push(f)
   }
-  const out: { folder: Folder; depth: number; hasChildren: boolean }[] = []
+  // 按 folder_id 分组文件
+  const filesByFolder = new Map<number, FileMeta[]>()
+  for (const f of props.files) {
+    const key = f.folder_id ?? 0
+    if (!filesByFolder.has(key)) filesByFolder.set(key, [])
+    filesByFolder.get(key)!.push(f)
+  }
+  const out: { type: 'folder' | 'file'; folder?: Folder; file?: FileMeta; depth: number; hasChildren?: boolean }[] = []
   const walk = (pid: number, depth: number) => {
     const list = children.get(pid) || []
     list.forEach((f) => {
-      out.push({ folder: f, depth, hasChildren: (children.get(f.id) || []).length > 0 })
-      if (expanded.value.has(f.id)) walk(f.id, depth + 1)
+      // 有子文件夹或有直属文件即可展开/收起（否则只有文件的目录没有三角，无法展开看到文件）
+      out.push({
+        type: 'folder',
+        folder: f,
+        depth,
+        hasChildren: (children.get(f.id) || []).length > 0 || (filesByFolder.get(f.id) || []).length > 0,
+      })
+      if (expanded.value.has(f.id)) {
+        walk(f.id, depth + 1)
+        // 展开的文件夹下显示直属文件
+        const folderFiles = filesByFolder.get(f.id) || []
+        for (const ff of folderFiles) {
+          out.push({ type: 'file', file: ff, depth: depth + 1 })
+        }
+      }
     })
   }
   // 根节点折叠时不显示子级；顶级文件夹从 depth=1 开始，与根节点缩进错开
-  if (rootExpanded.value) walk(0, 1)
+  if (rootExpanded.value) {
+    // 根目录直属文件
+    const rootFiles = filesByFolder.get(0) || []
+    for (const ff of rootFiles) {
+      out.push({ type: 'file', file: ff, depth: 1 })
+    }
+    walk(0, 1)
+  }
   return out
 })
 
 function toggle(folder: Folder) {
-  if (!rows.value.find((r) => r.folder.id === folder.id)?.hasChildren) return
+  if (!rows.value.find((r) => r.type === 'folder' && r.folder?.id === folder.id)?.hasChildren) return
   const s = new Set(expanded.value)
   if (s.has(folder.id)) s.delete(folder.id)
   else s.add(folder.id)
@@ -165,9 +222,9 @@ defineExpose({ expandTo })
     >
       <span
         class="chevron"
-        :class="{ 'no-child': !props.folders.length }"
+        :class="{ 'no-child': !rootHasChildren }"
         @click.stop="rootExpanded = !rootExpanded"
-        >{{ props.folders.length ? (rootExpanded ? '▾' : '▸') : '' }}</span
+        >{{ rootHasChildren ? (rootExpanded ? '▾' : '▸') : '' }}</span
       >
       <span class="folder-ico" @click.stop="rootExpanded = !rootExpanded">📁</span>
       <span class="name" @click="emit('select', null)" :title="rootName">{{ rootName }}</span>
@@ -176,39 +233,53 @@ defineExpose({ expandTo })
         <button class="mini" title="重命名根目录" @click.stop="emit('renameRoot')">✎</button>
       </span>
     </div>
-    <div
-      v-for="r in rows"
-      :key="r.folder.id"
-      class="node"
-      :class="{
-        selected: selected === r.folder.id,
-        'drag-over': dragOverId === r.folder.id,
-        'dragging': dragSource?.type === 'folder' && dragSource?.id === r.folder.id
-      }"
-      :style="{ paddingLeft: 8 + r.depth * 16 + 'px' }"
-      tabindex="0"
-      draggable="true"
-      @click="emit('select', r.folder.id)"
-      @dblclick.stop="toggle(r.folder)"
-      @keydown.enter.prevent="emit('select', r.folder.id)"
-      @dragover.prevent="dragOverId = r.folder.id"
-      @dragleave="dragOverId = null"
-      @drop.stop="onDropNode($event, r.folder.id)"
-      @dragstart="onDragStartFolder($event, r.folder.id)"
-      @dragend="onDragEnd"
-      @contextmenu="onContextMenu($event, r.folder.id, r.folder.name, r.folder)"
-    >
-      <span class="chevron" @click.stop="toggle(r.folder)" :class="{ 'no-child': !r.hasChildren }">
-        {{ r.hasChildren ? (isExpanded(r.folder) ? '▾' : '▸') : '' }}
-      </span>
-      <span class="folder-ico" @click="toggle(r.folder)">📁</span>
-      <span class="name" @click="emit('select', r.folder.id)" :title="r.folder.name">{{ r.folder.name }}</span>
-      <span class="acts">
-        <button class="mini" title="新建子文件夹" @click.stop="emit('new-folder', r.folder.id)">＋</button>
-        <button class="mini" title="重命名" @click.stop="emit('rename', r.folder)">✎</button>
-        <button class="mini" title="删除" @click.stop="emit('delete', r.folder)">🗑</button>
-      </span>
-    </div>
+    <template v-for="r in rows" :key="r.type === 'folder' ? 'f-' + r.folder!.id : 'ff-' + r.file!.id">
+      <!-- 文件夹节点 -->
+      <div
+        v-if="r.type === 'folder'"
+        class="node"
+        :class="{
+          selected: selected === r.folder!.id,
+          'drag-over': dragOverId === r.folder!.id,
+          'dragging': dragSource?.type === 'folder' && dragSource?.id === r.folder!.id
+        }"
+        :style="{ paddingLeft: 8 + r.depth * 16 + 'px' }"
+        tabindex="0"
+        draggable="true"
+        @click="emit('select', r.folder!.id)"
+        @dblclick.stop="toggle(r.folder!)"
+        @keydown.enter.prevent="emit('select', r.folder!.id)"
+        @dragover.prevent="dragOverId = r.folder!.id"
+        @dragleave="dragOverId = null"
+        @drop.stop="onDropNode($event, r.folder!.id)"
+        @dragstart="onDragStartFolder($event, r.folder!.id)"
+        @dragend="onDragEnd"
+        @contextmenu="onContextMenu($event, r.folder!.id, r.folder!.name, r.folder!)"
+      >
+        <span class="chevron" @click.stop="toggle(r.folder!)" :class="{ 'no-child': !r.hasChildren }">
+          {{ r.hasChildren ? (isExpanded(r.folder!) ? '▾' : '▸') : '' }}
+        </span>
+        <span class="folder-ico" @click.stop="toggle(r.folder!)">📁</span>
+        <span class="name" @click="emit('select', r.folder!.id)" :title="r.folder!.name">{{ r.folder!.name }}</span>
+        <span class="acts">
+          <button class="mini" title="新建子文件夹" @click.stop="emit('new-folder', r.folder!.id)">＋</button>
+          <button class="mini" title="重命名" @click.stop="emit('rename', r.folder!)">✎</button>
+          <button class="mini" title="删除" @click.stop="emit('delete', r.folder!)">🗑</button>
+        </span>
+      </div>
+      <!-- 文件节点 -->
+      <div
+        v-else
+        class="node tree-file"
+        :class="{ previewing: r.file!.id === previewingId }"
+        :style="{ paddingLeft: 8 + r.depth * 16 + 'px' }"
+        @click="emit('select-file', r.file!)"
+      >
+        <span class="chevron no-child" />
+        <span class="file-badge">{{ fileBadge(r.file!.ext).t }}</span>
+        <span class="name" :title="r.file!.name">{{ r.file!.name }}</span>
+      </div>
+    </template>
 
     <!-- 右键菜单 -->
     <Teleport to="body">
@@ -227,8 +298,18 @@ defineExpose({ expandTo })
         </div>
         <template v-if="contextMenu.folder">
           <div class="ctx-sep" />
+          <div class="ctx-item" @click="ctxAction('rename')">
+            <span class="ctx-ico">✎</span> 重命名
+          </div>
+          <div class="ctx-sep" />
           <div class="ctx-item ctx-danger" @click="ctxAction('delete')">
             <span class="ctx-ico">🗑</span> 删除
+          </div>
+        </template>
+        <template v-else>
+          <div class="ctx-sep" />
+          <div class="ctx-item" @click="ctxAction('rename-root')">
+            <span class="ctx-ico">✎</span> 重命名根目录
           </div>
         </template>
       </div>
@@ -279,6 +360,27 @@ defineExpose({ expandTo })
 .folder-ico {
   font-size: 14px;
   flex-shrink: 0;
+}
+.tree-file {
+  cursor: pointer;
+  opacity: 0.85;
+}
+.tree-file:hover {
+  opacity: 1;
+}
+.tree-file.previewing {
+  background: var(--bg-active);
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+.file-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  flex-shrink: 0;
+  font-weight: 500;
+  letter-spacing: 0.3px;
 }
 .name {
   flex: 1;

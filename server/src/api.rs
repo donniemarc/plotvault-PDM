@@ -405,29 +405,45 @@ async fn patch_file(
     Path(id): Path<i64>,
     Json(body): Json<FilePatch>,
 ) -> ApiResult<Json<Value>> {
+    let cur_file = db::get_file(&state.db, id).await?.ok_or_else(|| AppError::not_found("file not found"))?;
     let name = body.name.as_deref().map(|s| s.trim());
     if let Some(n) = name {
         if n.is_empty() {
             return Err(AppError::bad("filename cannot be empty"));
         }
     }
-    let desc = body.description.as_deref().map(|s| s.trim());
-    db::patch_file(&state.db, id, name, body.folder_id, desc).await?;
-    let file = db::get_file(&state.db, id).await?.ok_or_else(|| AppError::not_found("file not found"))?;
-    // 同步真实文件：重命名/移动时把 library 中的当前版本文件移动到新位置
-    let cur_ver = db::get_version(&state.db, id, file.current_version).await?;
-    if let Some(cv) = cur_ver {
+    // 重名检测：确定目标文件夹和目标文件名后检查同级是否已存在同名文件
+    let target_folder = body.folder_id.as_ref().unwrap_or(&cur_file.folder_id);
+    let target_name = name.unwrap_or(&cur_file.name);
+    if let Some(existing) = db::find_file_by_name(&state.db, *target_folder, target_name).await? {
+        if existing.id != id {
+            return Err(AppError::bad("目标位置已存在同名文件"));
+        }
+    }
+
+    // 同步真实文件：先移动磁盘文件（重命名/移动），成功后再更新数据库。
+    // 顺序保证：若移动失败（如大文件跨卷 copy 中断、源被并发删除），数据库不变，
+    // 文件记录仍指向原位置，不会出现"数据库已指向新位置但磁盘文件不存在"的半成品状态。
+    let mut new_rel: Option<String> = None;
+    if let Some(cv) = db::get_version(&state.db, id, cur_file.current_version).await? {
         if cv.blob_path.starts_with("library/") {
-            let folder_parts = match file.folder_id {
+            let folder_parts = match *target_folder {
                 Some(fid) => db::folder_path(&state.db, fid).await?,
                 None => vec![],
             };
-            let rel = storage::move_library_file(&state, &cv.blob_path, &folder_parts, &file.name)?;
+            let rel = storage::move_library_file(&state, &cv.blob_path, &folder_parts, target_name)?;
             if rel != cv.blob_path {
-                db::update_version_blob_path(&state.db, id, file.current_version, &rel).await?;
+                new_rel = Some(rel);
             }
         }
     }
+
+    let desc = body.description.as_deref().map(|s| s.trim());
+    db::patch_file(&state.db, id, name, body.folder_id, desc).await?;
+    if let Some(rel) = new_rel {
+        db::update_version_blob_path(&state.db, id, cur_file.current_version, &rel).await?;
+    }
+    let file = db::get_file(&state.db, id).await?.ok_or_else(|| AppError::not_found("file not found"))?;
     Ok(Json(json!(file)))
 }
 

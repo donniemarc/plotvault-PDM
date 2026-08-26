@@ -16,11 +16,23 @@ watch(
   },
   { immediate: true },
 )
+
+function preventDrag(e: DragEvent) {
+  e.preventDefault()
+}
 </script>
 
 <template>
-  <div class="img-wrap">
-    <img ref="img" :src="url" :alt="name" class="img-view" />
+  <div class="img-wrap" @dragstart.prevent @drop.prevent @dragover.prevent>
+    <img
+      ref="img"
+      :src="url"
+      :alt="name"
+      class="img-view"
+      draggable="false"
+      @dragstart="preventDrag"
+      @drag="preventDrag"
+    />
     <div v-if="err" class="img-error">{{ err }}</div>
   </div>
 </template>
@@ -38,6 +50,7 @@ watch(
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  user-select: none;
 }
 .img-error {
   color: var(--danger);
