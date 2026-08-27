@@ -10,10 +10,27 @@ function loadExpanded(): Set<number> {
     const raw = localStorage.getItem(TREE_EXPANDED_KEY)
     if (raw) {
       const arr = JSON.parse(raw)
-      if (Array.isArray(arr)) return new Set(arr)
+      if (Array.isArray(arr) && arr.length > 0) return new Set(arr)
     }
   } catch { /* ignore */ }
-  return new Set()
+  // 默认展开一级和二级目录
+  return getDefaultExpanded()
+}
+
+function getDefaultExpanded(): Set<number> {
+  const s = new Set<number>()
+  // 展开所有一级目录（parent_id 为 0 或 null）
+  const level1 = props.folders.filter(f => !f.parent_id || f.parent_id === 0)
+  for (const f of level1) {
+    s.add(f.id)
+  }
+  // 展开所有二级目录（parent_id 为一级目录的 id）
+  const level1Ids = new Set(level1.map(f => f.id))
+  const level2 = props.folders.filter(f => f.parent_id && level1Ids.has(f.parent_id))
+  for (const f of level2) {
+    s.add(f.id)
+  }
+  return s
 }
 
 function saveExpanded(s: Set<number>) {
@@ -83,6 +100,16 @@ function onGlobalClick() {
 
 onMounted(() => document.addEventListener('click', onGlobalClick))
 onBeforeUnmount(() => document.removeEventListener('click', onGlobalClick))
+
+// 首次加载时，如果没有保存的展开状态，应用默认展开逻辑
+watch(() => props.folders, (newFolders) => {
+  if (newFolders.length > 0) {
+    const raw = localStorage.getItem(TREE_EXPANDED_KEY)
+    if (!raw || JSON.parse(raw).length === 0) {
+      expanded.value = getDefaultExpanded()
+    }
+  }
+}, { immediate: true })
 
 // guides 已移除：用缩进展示层级
 const rows = computed(() => {

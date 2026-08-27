@@ -9,4 +9,11 @@ initTheme() // 幂等：与防闪脚本一致 + 注册系统主题监听
 // 文件树/文件列表的自定义右键菜单通过 e.preventDefault() 自行处理，不受影响
 document.addEventListener('contextmenu', (e) => e.preventDefault())
 
+// 拦截 Ctrl+F 快捷键，禁止 WebView 原生搜索框
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'f') {
+    e.preventDefault()
+  }
+})
+
 createApp(App).mount('#app')

@@ -86,14 +86,14 @@ function save() {
 async function checkUpdate() {
   isCheckingUpdate.value = true
   updateResult.value = null
+  hasUpdate.value = false
+  updateInfo.value = null
   try {
     const update = await checkForUpdates()
     if (update) {
       hasUpdate.value = true
       updateInfo.value = update
     } else {
-      hasUpdate.value = false
-      updateInfo.value = null
       updateResult.value = { ok: true, msg: '已是最新版本' }
     }
   } catch (error) {

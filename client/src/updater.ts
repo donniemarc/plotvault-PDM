@@ -7,7 +7,7 @@ export interface UpdateInfo {
 
 const GITHUB_REPO = 'donniemarc/plotvault-PDM';
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
-const CURRENT_VERSION = '1.12.0';
+const CURRENT_VERSION = '1.12.1';
 
 export async function checkForUpdates(): Promise<UpdateInfo | null> {
   try {
