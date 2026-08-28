@@ -9,6 +9,17 @@ import { checkForUpdates } from './updater'
 const view = ref<'browser' | 'settings'>('browser')
 const connected = ref<boolean | null>(null)
 const hasUpdate = ref(false)
+const fileBrowserRef = ref<InstanceType<typeof FileBrowser> | null>(null)
+
+function goHome() {
+  view.value = 'browser'
+  // 等待视图切换后，重置选中的文件夹
+  setTimeout(() => {
+    if (fileBrowserRef.value) {
+      fileBrowserRef.value.goHome()
+    }
+  }, 0)
+}
 
 const toasts = ref<{ id: number; msg: string; type: string }[]>([])
 let toastId = 0
@@ -59,7 +70,7 @@ onMounted(async () => {
 <template>
   <div class="app">
     <header class="topbar">
-      <div class="brand" title="返回主页" @click="view = 'browser'">
+      <div class="brand" title="返回主页" @click="goHome">
         <svg
           class="logo"
           viewBox="0 0 20 20"
@@ -170,7 +181,7 @@ onMounted(async () => {
       </div>
     </header>
     <main class="app-main">
-      <FileBrowser v-if="view === 'browser'" />
+      <FileBrowser v-if="view === 'browser'" ref="fileBrowserRef" />
       <SettingsView v-else @saved="onSaved" />
     </main>
 

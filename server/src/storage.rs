@@ -53,6 +53,11 @@ fn rel_of(state: &AppState, abs: &Path) -> Result<String> {
     Ok(rel.to_string_lossy().replace('\\', "/"))
 }
 
+/// 公共版本的 rel_of，供 main.rs 使用
+pub fn rel_of_public(state: &AppState, abs: &Path) -> Result<String> {
+    rel_of(state, abs)
+}
+
 /// 移动文件：先尝试 rename（同卷快）；失败（如 tmp 在 /config、library 在 /data 跨卷）
 /// 则回退为 copy + remove，保证跨挂载卷可用。
 pub fn move_file(src: &Path, dest: &Path) -> std::io::Result<()> {
@@ -107,7 +112,8 @@ pub fn rename_folder_dir(state: &AppState, old_parts: &[String], new_parts: &[St
     }
 }
 
-/// 新文件落到 library 对应目录（真实文件），返回相对路径
+/// 新文件落到 library 对应目录（真实文件），返回相对路径。
+/// 如果目标已存在则直接覆盖（旧版本应在调用前已归档到 blobs/）。
 pub fn finalize_library_file(
     state: &AppState,
     folder_parts: &[String],
@@ -116,10 +122,7 @@ pub fn finalize_library_file(
 ) -> Result<String> {
     let dir = folder_dir(state, folder_parts);
     std::fs::create_dir_all(&dir)?;
-    let mut dest = dir.join(safe_name(file_name));
-    if dest.exists() {
-        dest = dir.join(format!("{}_{}", Uuid::new_v4().simple(), safe_name(file_name)));
-    }
+    let dest = dir.join(safe_name(file_name));
     move_file(tmp, &dest)?;
     rel_of(state, &dest)
 }
@@ -138,7 +141,8 @@ pub fn archive_blob(state: &AppState, file_id: i64, version_no: i64, ext: &str, 
     Ok(format!("blobs/{}/{}", file_id, name))
 }
 
-/// 移动/重命名 library 中的文件到新目录（文件重命名、移动文件夹）
+/// 移动/重命名 library 中的文件到新目录（文件重命名、移动文件夹）。
+/// 如果目标已存在则直接覆盖（旧版本应在调用前已归档到 blobs/）。
 pub fn move_library_file(
     state: &AppState,
     old_rel: &str,
@@ -151,17 +155,14 @@ pub fn move_library_file(
     }
     let dir = folder_dir(state, folder_parts);
     std::fs::create_dir_all(&dir)?;
-    let mut dest = dir.join(safe_name(new_name));
-    if dest.exists() && dest != src {
-        dest = dir.join(format!("{}_{}", Uuid::new_v4().simple(), safe_name(new_name)));
-    }
+    let dest = dir.join(safe_name(new_name));
     if dest != src {
         move_file(&src, &dest)?;
     }
     rel_of(state, &dest)
 }
 
-/// 迁移用：把已有 blob 复制一份到 library 目录
+/// 迁移用：把已有 blob 复制一份到 library 目录（如果目标已存在则跳过）
 pub fn copy_to_library(
     state: &AppState,
     src_rel: &str,
@@ -174,9 +175,10 @@ pub fn copy_to_library(
     }
     let dir = folder_dir(state, folder_parts);
     std::fs::create_dir_all(&dir)?;
-    let mut dest = dir.join(safe_name(file_name));
+    let dest = dir.join(safe_name(file_name));
     if dest.exists() {
-        dest = dir.join(format!("{}_{}", Uuid::new_v4().simple(), safe_name(file_name)));
+        // 目标文件已存在，跳过复制，直接返回现有文件的相对路径
+        return rel_of(state, &dest);
     }
     std::fs::copy(&src, &dest)?;
     rel_of(state, &dest)

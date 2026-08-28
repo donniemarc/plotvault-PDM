@@ -150,72 +150,72 @@
   --badge-gray-fg: #57606a;
 }
 
-/* 绿色调护眼主题 */
+/* 暖黄纸质护眼主题 */
 :root[data-theme='green'] {
-  color-scheme: dark;
+  color-scheme: light;
 
   /* ---- 表面与层级 ---- */
-  --bg: #0f1a12;
-  --bg-panel: #162019;
-  --bg-elevated: #1b2820;
-  --bg-hover: #1e3025;
-  --bg-active: #22382c;
-  --viewer-bg: #0f1a12;
-  --viewer-veil: rgba(15, 26, 18, 0.72);
-  --viewer-model: #7cb87c;
+  --bg: #f5f0e6;
+  --bg-panel: #faf6ed;
+  --bg-elevated: #fff9f0;
+  --bg-hover: #efe8d8;
+  --bg-active: #e8e0cf;
+  --viewer-bg: #f5f0e6;
+  --viewer-veil: rgba(245, 240, 230, 0.72);
+  --viewer-model: #8b7355;
 
   /* ---- 边框/分隔 ---- */
-  --border: #2a4032;
-  --border-faint: #26382c;
-  --focus-ring: #3fb950;
+  --border: #d4c9b5;
+  --border-faint: #e0d6c4;
+  --focus-ring: #b8860b;
 
   /* ---- 文字 ---- */
-  --text: #d4ead8;
-  --text-dim: #8ab892;
-  --text-faint: #5c8a64;
-  --text-on-accent: #0f1a12;
-  --text-on-danger: #0f1a12;
+  --text: #3d3225;
+  --text-dim: #6b5d4f;
+  --text-faint: #9a8b7a;
+  --text-on-accent: #fff9f0;
+  --text-on-danger: #fff9f0;
 
   /* ---- Accent 系 ---- */
-  --accent: #3fb950;
-  --accent-hover: #56d364;
-  --accent-strong: #2ea043;
-  --accent-strong-hover: #238636;
-  --accent-soft: rgba(63, 185, 80, 0.14);
-  --accent-soft-faint: rgba(63, 185, 80, 0.08);
+  --accent: #b8860b;
+  --accent-hover: #9a7209;
+  --accent-strong: #8b6914;
+  --accent-strong-hover: #725712;
+  --accent-soft: rgba(184, 134, 11, 0.14);
+  --accent-soft-faint: rgba(184, 134, 11, 0.08);
 
   /* ---- 语义色 ---- */
-  --danger: #e5534b;
-  --danger-soft: rgba(229, 83, 75, 0.16);
-  --ok: #3fb950;
-  --ok-soft: rgba(63, 185, 80, 0.16);
-  --warn: #d29922;
-  --warn-soft: rgba(210, 153, 34, 0.16);
-  --warn-border: rgba(210, 153, 34, 0.45);
+  --danger: #c0392b;
+  --danger-soft: rgba(192, 57, 43, 0.16);
+  --ok: #27ae60;
+  --ok-soft: rgba(39, 174, 96, 0.16);
+  --warn: #d68910;
+  --warn-soft: rgba(214, 137, 16, 0.16);
+  --warn-border: rgba(214, 137, 16, 0.45);
 
   /* ---- 遮罩/阴影/滚动条 ---- */
-  --modal-mask: rgba(0, 0, 0, 0.55);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
-  --scroll-thumb: #2a4032;
-  --scroll-thumb-hover: #3a5042;
+  --modal-mask: rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.2);
+  --scroll-thumb: #c4b8a4;
+  --scroll-thumb-hover: #a89880;
 
-  /* ---- 类型徽章（绿色调） ---- */
-  --badge-red-bg: rgba(229, 83, 75, 0.16);
-  --badge-red-fg: #f07d75;
-  --badge-orange-bg: rgba(210, 153, 34, 0.16);
-  --badge-orange-fg: #e0b356;
-  --badge-blue-bg: rgba(63, 185, 253, 0.16);
-  --badge-blue-fg: #7db2ff;
-  --badge-cyan-bg: rgba(63, 185, 162, 0.16);
-  --badge-cyan-fg: #57cfba;
-  --badge-magenta-bg: rgba(201, 90, 200, 0.16);
-  --badge-magenta-fg: #d68dd2;
-  --badge-green-bg: rgba(63, 185, 80, 0.16);
-  --badge-green-fg: #63d17a;
-  --badge-gray-bg: rgba(138, 151, 165, 0.16);
-  --badge-gray-fg: #9aa7b5;
+  /* ---- 类型徽章（暖色调） ---- */
+  --badge-red-bg: rgba(192, 57, 43, 0.16);
+  --badge-red-fg: #c0392b;
+  --badge-orange-bg: rgba(214, 137, 16, 0.16);
+  --badge-orange-fg: #d68910;
+  --badge-blue-bg: rgba(52, 152, 219, 0.16);
+  --badge-blue-fg: #2980b9;
+  --badge-cyan-bg: rgba(22, 160, 133, 0.16);
+  --badge-cyan-fg: #16a085;
+  --badge-magenta-bg: rgba(142, 68, 173, 0.16);
+  --badge-magenta-fg: #8e44ad;
+  --badge-green-bg: rgba(39, 174, 96, 0.16);
+  --badge-green-fg: #27ae60;
+  --badge-gray-bg: rgba(127, 140, 141, 0.16);
+  --badge-gray-fg: #7f8c8d;
 }
 
 * {
@@ -288,14 +288,8 @@ select {
   outline: none;
 }
 
-input:focus,
-textarea:focus,
-select:focus {
-  border-color: var(--accent);
-}
-
-/* 全局双层焦点环 */
-:is(button, input, textarea, select, .node, .mini, .ops button, .close, .icon-btn, [tabindex]):focus-visible {
+/* 全局双层焦点环（按钮/交互元素，不含input） */
+:is(button, .node, .mini, .ops button, .close, .icon-btn, [tabindex]):focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 4px var(--focus-ring);
 }

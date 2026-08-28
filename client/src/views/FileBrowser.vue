@@ -8,6 +8,7 @@ import FolderTree from '../components/FolderTree.vue'
 import FileList from '../components/FileList.vue'
 import UploadDialog from '../components/UploadDialog.vue'
 import VersionPanel from '../components/VersionPanel.vue'
+import PropertyPanel from '../components/PropertyPanel.vue'
 import PreviewPane from '../preview/PreviewPane.vue'
 import { fitActiveViewer, zoomActiveViewer } from '../preview/three'
 import JSZip from 'jszip'
@@ -36,6 +37,12 @@ const currentFolderName = computed(() => {
 const previewFile = ref<FileMeta | null>(null)
 const previewVersion = ref<number | undefined>(undefined)
 const versionPanelFile = ref<FileMeta | null>(null)
+
+// 属性面板状态
+const activePropertyTab = ref<'property' | 'filelist' | 'versions' | 'related' | 'history'>('property')
+const selectedFolderForProps = ref<Folder | null>(null)
+const selectedFileForProps = ref<FileMeta | null>(null)
+const activePreviewingId = computed(() => selectedFileForProps.value?.id ?? previewFile.value?.id ?? null)
 
 const searchOpen = ref(false)
 const searchQ = ref('')
@@ -133,26 +140,48 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// ---------- 文件树侧栏：可拖拽调宽 ----------
+const sidebarW = ref<number>(Number(localStorage.getItem('plotvault_pdm_sidebar_w')) || 240)
+
+function clampSidebarW(w: number): number {
+  const MIN_SIDEBAR = 180
+  const MAX_SIDEBAR = Math.min(800, window.innerWidth - 400)
+  return Math.min(Math.max(Math.round(w), MIN_SIDEBAR), Math.round(MAX_SIDEBAR))
+}
+
+function onSidebarResizeStart(e: MouseEvent) {
+  e.preventDefault()
+  const startX = e.clientX
+  const startW = sidebarW.value
+  function onMove(ev: MouseEvent) {
+    sidebarW.value = clampSidebarW(startW + (ev.clientX - startX))
+    localStorage.setItem('plotvault_pdm_sidebar_w', String(sidebarW.value))
+  }
+  function onUp() {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    document.body.classList.remove('resizing-cursor')
+  }
+  document.body.classList.add('resizing-cursor')
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
 // ---------- 预览面板：可拖拽调宽 / 全屏 ----------
 const previewFullscreen = ref(false)
 const rightPanelWidth = ref<number>(Number(localStorage.getItem('plotvault_pdm_panel_w')) || 460)
 
-function sidebarWidth(): number {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w').trim()
-  const v = parseFloat(raw)
-  return Number.isFinite(v) && v > 0 ? v : 240
-}
-
 // 面板最大宽度 = 窗口宽度 - 侧栏 - 分隔条 - 主区最小宽度（避免面板挤压/盖住文件列表）
+// MIN_MAIN 需 ≥ 固定列总宽(622px) + 名称列最小宽度(140px) = 762px，确保文件名不被挤压消失
 function clampPanelW(w: number): number {
-  const MIN_MAIN = 320
-  const maxW = Math.max(320, window.innerWidth - sidebarWidth() - 6 - MIN_MAIN)
+  const MIN_MAIN = 500
+  const maxW = Math.max(320, window.innerWidth - sidebarW.value - 6 - MIN_MAIN)
   return Math.min(Math.max(Math.round(w), 320), Math.round(maxW))
 }
 
 // 主区可用宽度（窗口 - 侧栏 - 分隔条 - 预览面板）
 function mainAreaWidth(): number {
-  return window.innerWidth - sidebarWidth() - 6 - rightPanelWidth.value
+  return window.innerWidth - sidebarW.value - 6 - rightPanelWidth.value
 }
 
 // 面板过宽导致主区变窄时，逐步收起次要按钮，避免头部溢出被面板盖住
@@ -241,6 +270,18 @@ async function selectFolder(id: number | null) {
   searchOpen.value = false
   previewFile.value = null
   versionPanelFile.value = null
+  selectedFileForProps.value = null
+  
+  // 根目录保持原样显示文件列表，不显示属性面板
+  if (id === null) {
+    selectedFolderForProps.value = null
+  } else {
+    // 一级目录及以后显示属性面板
+    const folder = folders.value.find(f => f.id === id)
+    selectedFolderForProps.value = folder || null
+  }
+  
+  activePropertyTab.value = 'property'
   clearSelection()
 }
 
@@ -274,9 +315,15 @@ function clearSearch() {
 
 // ---------- preview / versions ----------
 function openPreview(f: FileMeta) {
-  previewFile.value = f
+  previewFile.value = null
   previewVersion.value = undefined
   versionPanelFile.value = null
+  
+  // 只显示属性面板（内嵌预览），不弹出右侧预览窗口
+  selectedFileForProps.value = f
+  selectedFolderForProps.value = null
+  selectedFolder.value = null
+  activePropertyTab.value = 'property'
 }
 
 function openVersions(f: FileMeta) {
@@ -673,17 +720,24 @@ onBeforeUnmount(() => {
     syncPollTimer = null
   }
 })
+
+// 回到主页（清除选中的文件夹）
+function goHome() {
+  selectFolder(null)
+}
+
+defineExpose({ goHome })
 </script>
 
 <template>
   <div class="browser">
-    <aside class="sidebar">
+    <aside class="sidebar" :style="{ width: sidebarW + 'px' }">
       <FolderTree
         ref="treeRef"
         :folders="folders"
         :files="files"
         :selected="selectedFolder"
-        :previewing-id="previewFile?.id ?? null"
+          :previewing-id="activePreviewingId"
         :root-name="rootName"
         @select="selectFolder"
         @new-folder="openNewFolder"
@@ -697,6 +751,8 @@ onBeforeUnmount(() => {
         @select-file="openPreview"
       />
     </aside>
+
+    <div class="sidebar-resizer" title="拖动调整文件树宽度" @mousedown.prevent="onSidebarResizeStart"></div>
 
     <main class="main">
       <div
@@ -744,12 +800,33 @@ onBeforeUnmount(() => {
         <button @click="clearSelection">取消选择</button>
       </div>
 
-      <div class="content" @click="onContentClick">
+      <!-- 属性面板（仅一级目录及以后显示） -->
+      <div v-if="selectedFolderForProps || selectedFileForProps" class="property-panel-container">
+        <PropertyPanel
+          :folder="selectedFolderForProps"
+          :file="selectedFileForProps"
+          :active-tab="activePropertyTab"
+          :show-inline-preview="!!selectedFileForProps"
+          @update:active-tab="activePropertyTab = $event"
+          @update:folder="selectedFolderForProps = $event"
+          @update:file="selectedFileForProps = $event"
+          @toast="toast"
+          @select-folder="selectFolder"
+          @preview="openPreview"
+          @download="download"
+          @delete="removeFile"
+          @rename="(f) => openRename('file', f.id, f.name)"
+          @upload="openUpload"
+        />
+      </div>
+
+      <!-- 根目录显示文件列表 -->
+      <div v-else class="content" @click="onContentClick">
         <FileList
           :files="visibleFiles"
           :folders="folders"
           :child-folders="childFolders"
-          :previewing-id="previewFile?.id ?? null"
+        :previewing-id="activePreviewingId"
           :selected-ids="selectedIds"
           :all-selected="allSelected"
           :some-selected="someSelected"
@@ -1054,6 +1131,12 @@ onBeforeUnmount(() => {
   padding: 3px 12px;
   font-size: var(--font-sm);
 }
+.property-panel-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
 .drop-hint {
   position: fixed;
   inset: 0;
@@ -1106,6 +1189,34 @@ onBeforeUnmount(() => {
 }
 .resizer:hover,
 .resizer:active {
+  background: var(--accent-soft);
+}
+.sidebar-resizer {
+  width: 6px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  position: relative;
+}
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 32px;
+  border-radius: 1px;
+  background: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.sidebar-resizer:hover::after {
+  opacity: 1;
+}
+.sidebar-resizer:hover,
+.sidebar-resizer:active {
   background: var(--accent-soft);
 }
 .preview-tools {

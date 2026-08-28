@@ -22,3 +22,7 @@ CHANGELOG.md
 # test artifacts
 client/test-tmp/
 server/test_data/
+
+# internal reference files
+PLM系统技术规格书-临时.md
+cleanup.sql

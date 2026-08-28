@@ -99,6 +99,7 @@ pub fn routes(state: AppState) -> Router {
         .route("/tree", get(tree))
         .route("/folders", post(create_folder))
         .route("/folders/{id}", patch(patch_folder).delete(delete_folder))
+        .route("/folders/{id}/props", patch(update_folder_props))
         .route("/files", post(upload_file))
         .route("/files/{id}", patch(patch_file).delete(delete_file))
         .route("/files/{id}/versions", get(list_versions).post(add_version))
@@ -223,13 +224,72 @@ async fn patch_folder(
 async fn delete_folder(State(state): State<AppState>, Path(id): Path<i64>) -> ApiResult<StatusCode> {
     let parts = db::folder_path(&state.db, id).await?;
     let file_ids = db::file_ids_under_folder(&state.db, id).await?;
-    for fid in file_ids {
-        storage::remove_file_blobs(&state, fid);
+    // 安全删除每个文件的 blob（跳过仍被其它文件引用的共享 blob）
+    for fid in &file_ids {
+        let versions = db::list_versions(&state.db, *fid).await.unwrap_or_default();
+        let mut seen = std::collections::HashSet::new();
+        for v in &versions {
+            if seen.insert(v.blob_path.as_str()) {
+                if !db::is_blob_referenced_by_others(&state.db, &v.blob_path, *fid).await.unwrap_or(false) {
+                    storage::remove_blobs(&state, &[v.blob_path.clone()]);
+                }
+            }
+        }
     }
     db::delete_folder(&state.db, id).await?;
     // 同步删除 NAS 真实目录（含子目录与最新版本文件）
     storage::remove_folder_dir(&state, &parts);
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct FolderProps {
+    name: String,
+    code: Option<String>,
+    stage: Option<String>,
+    status: Option<String>,
+    description: Option<String>,
+    remarks: Option<String>,
+    creator: Option<String>,
+}
+
+async fn update_folder_props(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<FolderProps>,
+) -> ApiResult<Json<Value>> {
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(AppError::bad("folder name is required"));
+    }
+    // 重名检测（同父级）
+    let folder = db::get_folder(&state.db, id).await?.ok_or_else(|| AppError::not_found("folder not found"))?;
+    if let Some(existing) = db::find_folder_by_name(&state.db, folder.parent_id, name).await? {
+        if existing.id != id {
+            return Err(AppError::bad("同层级下已存在同名文件夹"));
+        }
+    }
+    
+    let code = body.code.as_deref().unwrap_or("");
+    let stage = body.stage.as_deref().unwrap_or("");
+    let status = body.status.as_deref().unwrap_or("");
+    let description = body.description.as_deref().unwrap_or("");
+    let remarks = body.remarks.as_deref().unwrap_or("");
+    let creator = body.creator.as_deref().unwrap_or("");
+    
+    db::update_folder_props(&state.db, id, name, code, stage, status, description, remarks, creator).await?;
+    
+    // 如果名称变更，需要同步重命名NAS真实目录
+    if name != folder.name {
+        let old_parts = db::folder_path(&state.db, id).await?;
+        // 先更新名称
+        db::rename_folder(&state.db, id, name).await?;
+        let new_parts = db::folder_path(&state.db, id).await?;
+        storage::rename_folder_dir(&state, &old_parts, &new_parts)?;
+    }
+    
+    let folder = db::get_folder(&state.db, id).await?.ok_or_else(|| AppError::not_found("folder not found"))?;
+    Ok(Json(json!(folder)))
 }
 
 // ---------- files ----------
@@ -282,6 +342,18 @@ async fn upload_file(
         };
 
         if let Some(existing_file) = existing {
+            // SHA256 去重：如果文件内容与某个已有版本完全相同，跳过上传
+            if let Some(dup_ver) = db::find_version_by_sha256(&state.db, existing_file.id, &sha).await? {
+                let _ = std::fs::remove_file(&tmp);
+                let file = db::get_file(&state.db, existing_file.id).await?.unwrap();
+                return Ok(json!({
+                    "created": "version",
+                    "file": file,
+                    "version_id": dup_ver.id,
+                    "version_no": dup_ver.version_no,
+                    "dedup": true
+                }));
+            }
             let folder_parts = match existing_file.folder_id {
                 Some(fid) => db::folder_path(&state.db, fid).await?,
                 None => vec![],
@@ -349,6 +421,15 @@ async fn add_version(
 
     let result: Result<Value, AppError> = async {
         let file = db::get_file(&state.db, file_id).await?.ok_or_else(|| AppError::not_found("file not found"))?;
+        // SHA256 去重：如果文件内容与某个已有版本完全相同，复用已有版本
+        if let Some(dup_ver) = db::find_version_by_sha256(&state.db, file_id, &sha).await? {
+            let _ = std::fs::remove_file(&tmp);
+            return Ok(json!({
+                "version_id": dup_ver.id,
+                "version_no": dup_ver.version_no,
+                "dedup": true
+            }));
+        }
         let folder_parts = match file.folder_id {
             Some(fid) => db::folder_path(&state.db, fid).await?,
             None => vec![],
@@ -398,6 +479,16 @@ struct FilePatch {
     #[serde(default)]
     folder_id: Option<Option<i64>>,
     description: Option<String>,
+    code: Option<String>,
+    stage: Option<String>,
+    status: Option<String>,
+    remarks: Option<String>,
+    creator: Option<String>,
+    drawing_size: Option<String>,
+    source_file_type: Option<String>,
+    source_file_version: Option<String>,
+    other_info: Option<String>,
+    publish_time: Option<String>,
 }
 
 async fn patch_file(
@@ -438,8 +529,27 @@ async fn patch_file(
         }
     }
 
-    let desc = body.description.as_deref().map(|s| s.trim());
-    db::patch_file(&state.db, id, name, body.folder_id, desc).await?;
+    // 更新所有属性字段
+    let new_name = name.unwrap_or(&cur_file.name);
+    let new_code = body.code.as_deref().unwrap_or(&cur_file.code);
+    let new_stage = body.stage.as_deref().unwrap_or(&cur_file.stage);
+    let new_status = body.status.as_deref().unwrap_or(&cur_file.status);
+    let new_desc = body.description.as_deref().unwrap_or(&cur_file.description);
+    let new_remarks = body.remarks.as_deref().unwrap_or(&cur_file.remarks);
+    let new_creator = body.creator.as_deref().unwrap_or(&cur_file.creator);
+    let new_drawing_size = body.drawing_size.as_deref().unwrap_or(&cur_file.drawing_size);
+    let new_source_file_type = body.source_file_type.as_deref().unwrap_or(&cur_file.source_file_type);
+    let new_source_file_version = body.source_file_version.as_deref().unwrap_or(&cur_file.source_file_version);
+    let new_other_info = body.other_info.as_deref().unwrap_or(&cur_file.other_info);
+    let new_publish_time = body.publish_time.as_deref().unwrap_or(&cur_file.publish_time);
+    
+    db::update_file_props(&state.db, id, new_name, new_code, new_stage, new_status, new_desc, new_remarks, new_creator, new_drawing_size, new_source_file_type, new_source_file_version, new_other_info, new_publish_time).await?;
+    
+    // 如果有文件夹或名称变更，还需要更新folder_id
+    if let Some(fid) = body.folder_id {
+        db::patch_file_folder(&state.db, id, fid).await?;
+    }
+    
     if let Some(rel) = new_rel {
         db::update_version_blob_path(&state.db, id, cur_file.current_version, &rel).await?;
     }
@@ -449,8 +559,14 @@ async fn patch_file(
 
 async fn delete_file(State(state): State<AppState>, Path(id): Path<i64>) -> ApiResult<StatusCode> {
     let paths = db::delete_file(&state.db, id).await?;
-    // 同时删除 library 中的当前版本真实文件与 blobs 归档（安全删除，不误删同目录其它文件）
-    storage::remove_blobs(&state, &paths);
+    // 安全删除 blob：跳过仍被其它文件引用的共享 blob
+    let unique: std::collections::HashSet<&str> = paths.iter().map(|s| s.as_str()).collect();
+    for rel in &unique {
+        if db::is_blob_referenced_by_others(&state.db, rel, id).await.unwrap_or(false) {
+            continue;
+        }
+        storage::remove_blobs(&state, &[rel.to_string()]);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

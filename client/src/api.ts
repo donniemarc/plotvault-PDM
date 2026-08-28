@@ -173,6 +173,21 @@ export const api = {
 
   deleteFolder: (id: number) => request<void>(`/api/folders/${id}`, { method: 'DELETE' }),
 
+  updateFolderProps: (id: number, props: {
+    name: string;
+    code?: string;
+    stage?: string;
+    status?: string;
+    description?: string;
+    remarks?: string;
+    creator?: string;
+  }) =>
+    request<Folder>(`/api/folders/${id}/props`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(props),
+    }),
+
   getFileDiskPath: (id: number) => request<{ path: string; name: string }>(`/api/files/${id}/disk-path`),
 
   getFolderDiskPath: (id: number) => request<{ path: string; name: string }>(`/api/folders/${id}/disk-path`),
@@ -236,7 +251,21 @@ export const api = {
 
   versions: (id: number) => request<{ file: FileMeta; versions: VersionInfo[] }>(`/api/files/${id}/versions`),
 
-  patchFile: (id: number, patch: { name?: string; folder_id?: number | null; description?: string }) =>
+  patchFile: (id: number, patch: {
+    name?: string;
+    folder_id?: number | null;
+    description?: string;
+    code?: string;
+    stage?: string;
+    status?: string;
+    remarks?: string;
+    creator?: string;
+    drawing_size?: string;
+    source_file_type?: string;
+    source_file_version?: string;
+    other_info?: string;
+    publish_time?: string;
+  }) =>
     request<FileMeta>(`/api/files/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

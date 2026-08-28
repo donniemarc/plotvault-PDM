@@ -18,6 +18,15 @@ use axum::{
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 
+/// 检查文件名是否为 UUID 前缀格式（32 hex chars + '_' + original name）
+fn is_uuid_prefix(name: &str) -> bool {
+    if let Some((prefix, _rest)) = name.split_once('_') {
+        prefix.len() == 32 && prefix.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    } else {
+        false
+    }
+}
+
 /// 同步状态
 #[derive(Clone)]
 pub struct SyncStatus {
@@ -49,12 +58,17 @@ pub struct AppState {
 }
 
 /// 扫描 library/ 目录，将已存在的文件/文件夹导入数据库（幂等）。
-/// 用于数据库清空后重建元数据，避免重复上传导致文件重命名浪费空间。
+/// 使用文件的相对路径（blob_path）进行去重，确保不会创建重复记录。
 /// 返回值：(新增文件夹数, 新增文件数)
 async fn scan_library_to_db(state: &AppState) -> (usize, usize) {
     let library_root = state.data_dir.join("library");
+    if !library_root.exists() {
+        return (0, 0);
+    }
     let mut path_to_folder_id: HashMap<PathBuf, Option<i64>> = HashMap::new();
     path_to_folder_id.insert(library_root.clone(), None); // 根目录映射
+    let new_folders = std::sync::atomic::AtomicUsize::new(0);
+    let new_files = std::sync::atomic::AtomicUsize::new(0);
 
     // 递归扫描函数
     async fn scan_dir(
@@ -62,6 +76,8 @@ async fn scan_library_to_db(state: &AppState) -> (usize, usize) {
         parent_folder_id: Option<i64>,
         state: &AppState,
         map: &mut HashMap<PathBuf, Option<i64>>,
+        new_folders: &std::sync::atomic::AtomicUsize,
+        new_files: &std::sync::atomic::AtomicUsize,
     ) {
         let entries = match tokio::task::spawn_blocking(move || {
             std::fs::read_dir(dir).map_err(|e| e.to_string())
@@ -86,25 +102,36 @@ async fn scan_library_to_db(state: &AppState) -> (usize, usize) {
                     Ok(Some(f)) => f.id,
                     _ => {
                         // 创建新文件夹
+                        new_folders.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         db::create_folder(&state.db, folder_name, parent_folder_id)
                             .await
                             .unwrap_or(0)
                     }
                 };
                 map.insert(path.clone(), Some(folder_id));
-                Box::pin(scan_dir(path, Some(folder_id), state, map)).await;
+                Box::pin(scan_dir(path, Some(folder_id), state, map, new_folders, new_files)).await;
             } else {
                 let file_name = match path.file_name().and_then(|n| n.to_str()) {
                     Some(n) => n,
                     None => continue,
                 };
-                let ext = storage::ext_of(file_name);
-                // 检查是否已存在同名文件（在相同文件夹下）
-                let existing =
-                    db::find_file_by_name(&state.db, parent_folder_id, file_name).await;
-                if let Ok(Some(_)) = existing {
-                    continue; // 已存在，跳过（不计算 SHA256，避免重复 IO）
+                // 跳过 UUID 前缀文件（finalize_library_file 旧逻辑遗留的重复文件）
+                if is_uuid_prefix(file_name) {
+                    continue;
                 }
+                let ext = storage::ext_of(file_name);
+                
+                // 计算相对路径（从 library 根目录开始）
+                let rel = match path.strip_prefix(&state.data_dir.join("library")) {
+                    Ok(r) => format!("library/{}", r.to_string_lossy().replace('\\', "/")),
+                    Err(_) => continue,
+                };
+                
+                // 使用 blob_path 检查是否已存在（更可靠的去重机制）
+                if let Ok(Some(_)) = db::find_version_by_blob_path(&state.db, &rel).await {
+                    continue; // 已存在，跳过
+                }
+                
                 // 获取文件大小（同步）
                 let path_clone = path.clone();
                 let size = tokio::task::spawn_blocking(move || {
@@ -123,13 +150,7 @@ async fn scan_library_to_db(state: &AppState) -> (usize, usize) {
                 if let Ok(file_id) =
                     db::create_file(&state.db, parent_folder_id, file_name, &ext, size as i64).await
                 {
-                    // 计算相对路径（从 data_dir 开始）
-                    let rel = path
-                        .strip_prefix(&state.data_dir)
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .replace('\\', "/");
+                    new_files.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let _ = db::insert_version(&state.db, file_id, 1, &rel, size as i64, &sha, "")
                         .await;
                 }
@@ -159,12 +180,11 @@ async fn scan_library_to_db(state: &AppState) -> (usize, usize) {
     }
 
     println!("scan: scanning library directory...");
-    scan_dir(library_root, None, state, &mut path_to_folder_id).await;
-    let folders = path_to_folder_id.len().saturating_sub(1); // 减去根目录映射
-    // 统计新增文件数（通过计算数据库中文件总数的变化来估算）
-    let file_count = db::list_files(&state.db).await.map(|f| f.len()).unwrap_or(0);
-    println!("scan: imported {} folders, {} total files in db", folders, file_count);
-    (folders, file_count)
+    scan_dir(library_root, None, state, &mut path_to_folder_id, &new_folders, &new_files).await;
+    let added_folders = new_folders.load(std::sync::atomic::Ordering::Relaxed);
+    let added_files = new_files.load(std::sync::atomic::Ordering::Relaxed);
+    println!("scan: added {added_folders} folders, {added_files} files");
+    (added_folders, added_files)
 }
 
 /// 同步计算文件 SHA256
@@ -208,11 +228,54 @@ async fn migrate_to_library(state: &AppState) {
         Err(_) => return,
     };
     let mut migrated = 0;
+    let mut skipped = 0;
     for file in &files {
         let Ok(Some(ver)) = db::get_version(&state.db, file.id, file.current_version).await else {
             continue;
         };
+        
+        // 情况1：已经在library目录，检查文件是否存在
+        if ver.blob_path.starts_with("library/") {
+            let abs = state.data_dir.join(&ver.blob_path);
+            if abs.exists() {
+                // 文件存在，跳过
+                skipped += 1;
+                continue;
+            } else {
+                // 文件不存在，删除这条记录
+                println!("migration: removing ghost record id={} name=\"{}\" (file missing)", file.id, file.name);
+                if let Ok(paths) = db::delete_file(&state.db, file.id).await {
+                    storage::remove_blobs(state, &paths);
+                }
+                continue;
+            }
+        }
+        
+        // 情况2：在blobs目录，需要迁移
         if !ver.blob_path.starts_with("blobs/") {
+            continue;
+        }
+        let src_path = state.data_dir.join(&ver.blob_path);
+        if !src_path.exists() {
+            // 源文件不存在，检查library目录下是否有同名文件
+            let parts = match file.folder_id {
+                Some(fid) => db::folder_path(&state.db, fid).await.unwrap_or_default(),
+                None => vec![],
+            };
+            let lib_path = storage::folder_dir(state, &parts).join(storage::safe_name(&file.name));
+            if lib_path.exists() {
+                // library目录下已有文件，直接更新数据库
+                if let Ok(rel) = storage::rel_of_public(state, &lib_path) {
+                    let _ = db::update_version_blob_path(&state.db, file.id, file.current_version, &rel).await;
+                    println!("migration: updated record id={} to library path", file.id);
+                }
+            } else {
+                // 两边都没有文件，删除记录
+                println!("migration: removing orphan record id={} name=\"{}\"", file.id, file.name);
+                if let Ok(paths) = db::delete_file(&state.db, file.id).await {
+                    storage::remove_blobs(state, &paths);
+                }
+            }
             continue;
         }
         let parts = match file.folder_id {
@@ -227,14 +290,83 @@ async fn migrate_to_library(state: &AppState) {
                         let _ = std::fs::remove_dir(state.data_dir.join(dir));
                     }
                     migrated += 1;
-                } else {
-                    let _ = std::fs::remove_file(state.data_dir.join(&rel));
                 }
             }
             Err(_) => continue,
         }
     }
-    println!("migration: migrated {migrated} files to library/, {} skipped", files.len() - migrated);
+    println!("migration: migrated {migrated} files, skipped {skipped}, total {total}", total = files.len());
+}
+
+/// 启动清理：扫描 library 目录，删除 UUID 副本文件（finalize_library_file 旧逻辑遗留产物）。
+/// 如果 `library/<dir>/<uuid>_<name>.ext` 与 `library/<dir>/<name>.ext` 同时存在，
+/// 则 UUID 副本为重复文件，删除其磁盘文件并清理数据库记录。
+async fn cleanup_duplicates(state: &AppState) {
+    let library_root = state.data_dir.join("library");
+    if !library_root.exists() {
+        return;
+    }
+
+    // 收集需要清理的 UUID 文件信息（路径 + 文件名）
+    struct DupEntry {
+        path: std::path::PathBuf,
+        file_name: String,
+    }
+    let mut dups: Vec<DupEntry> = Vec::new();
+
+    fn scan_dir(
+        dir: &std::path::Path,
+        dups: &mut Vec<DupEntry>,
+    ) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                scan_dir(&path, dups);
+                continue;
+            }
+            let file_name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            if !is_uuid_prefix(&file_name) {
+                continue;
+            }
+            if let Some((_uuid, original)) = file_name.split_once('_') {
+                let original_path = dir.join(original);
+                if original_path.exists() {
+                    dups.push(DupEntry { path, file_name });
+                }
+            }
+        }
+    }
+
+    scan_dir(&library_root, &mut dups);
+    if dups.is_empty() {
+        return;
+    }
+
+    let mut removed = 0u32;
+    for dup in &dups {
+        // 删除磁盘文件
+        if std::fs::remove_file(&dup.path).is_ok() {
+            removed += 1;
+            println!("cleanup: removed UUID duplicate: {}", dup.path.display());
+        }
+        // 删除数据库记录：查找名为 dup.file_name 的文件记录并删除
+        if let Ok(Some(file)) = db::find_file_by_name_exact(&state.db, &dup.file_name).await {
+            if let Ok(paths) = db::delete_file(&state.db, file.id).await {
+                storage::remove_blobs(state, &paths);
+                println!("cleanup: removed db record id={} name=\"{}\"", file.id, file.name);
+            }
+        }
+    }
+    if removed > 0 {
+        println!("cleanup: removed {removed} UUID duplicate files from library");
+    }
 }
 
 /// 等待数据库就绪：compose 里 db 容器健康前服务端可能先起，
@@ -320,6 +452,8 @@ async fn main() -> Result<()> {
             let mut status = state_bg.sync_status.write().await;
             status.is_syncing = true;
         }
+        // 先清理 library 中的 UUID 重复文件（旧 finalize_library_file 逻辑遗留）
+        cleanup_duplicates(&state_bg).await;
         let (folders, files) = scan_library_to_db(&state_bg).await;
         migrate_to_library(&state_bg).await;
         {

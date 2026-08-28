@@ -62,6 +62,18 @@ const rootExpanded = ref(true)
 const expanded = ref<Set<number>>(loadExpanded())
 const dragOverId = ref<number | 'root' | null>(null)
 const dragSource = ref<{ type: 'folder' | 'files'; id: number | number[] } | null>(null)
+const isDragOverRoot = ref(false)
+
+function onDragOverRoot() {
+  if (dragSource.value) {
+    isDragOverRoot.value = true
+    dragOverId.value = null
+  }
+}
+
+function onDragLeaveRoot() {
+  isDragOverRoot.value = false
+}
 
 watch(expanded, (s) => saveExpanded(s))
 
@@ -73,10 +85,23 @@ const rootHasChildren = computed(() => {
 
 // 右键菜单
 const contextMenu = ref<{ x: number; y: number; folderId: number | null; folderName: string; folder: Folder | null } | null>(null)
+const contextMenuRef = ref<HTMLElement | null>(null)
 
 function onContextMenu(e: MouseEvent, folderId: number | null, folderName: string, folder: Folder | null) {
   e.preventDefault()
-  contextMenu.value = { x: e.clientX, y: e.clientY, folderId, folderName, folder }
+  // 计算菜单位置，避免底部截断
+  const menuHeight = 200 // 预估菜单高度
+  const viewportHeight = window.innerHeight
+  let y = e.clientY
+  if (y + menuHeight > viewportHeight) {
+    y = Math.max(0, viewportHeight - menuHeight - 10)
+  }
+  let x = e.clientX
+  const menuWidth = 180
+  if (x + menuWidth > window.innerWidth) {
+    x = window.innerWidth - menuWidth - 10
+  }
+  contextMenu.value = { x, y, folderId, folderName, folder }
 }
 
 function closeContextMenu() {
@@ -210,9 +235,19 @@ function onDragStartFolder(e: DragEvent, folderId: number) {
   dragSource.value = { type: 'folder', id: folderId }
 }
 
+function onDragStartFile(e: DragEvent, fileId: number) {
+  const dt = e.dataTransfer
+  if (dt) {
+    dt.setData('application/x-file-ids', JSON.stringify([fileId]))
+    dt.effectAllowed = 'move'
+  }
+  dragSource.value = { type: 'files', id: [fileId] }
+}
+
 function onDragEnd() {
   dragSource.value = null
   dragOverId.value = null
+  isDragOverRoot.value = false
 }
 
 // 展开到指定文件夹（含根节点与所有祖先），使新建的文件夹直接可见
@@ -238,12 +273,13 @@ defineExpose({ expandTo })
   <div class="tree" @contextmenu.prevent>
     <div
       class="node"
-      :class="{ selected: selected === null, 'drag-over': dragOverId === null && dragSource }"
+      :class="{ selected: selected === null, 'drag-over': isDragOverRoot }"
       style="padding-left: 8px"
       tabindex="0"
       @click="emit('select', null)"
       @keydown.enter.prevent="emit('select', null)"
-      @dragover.prevent="dragOverId = null"
+      @dragover.prevent="onDragOverRoot"
+      @dragleave="onDragLeaveRoot"
       @drop.stop="onDropNode($event, null)"
       @contextmenu="onContextMenu($event, null, rootName, null)"
     >
@@ -298,9 +334,15 @@ defineExpose({ expandTo })
       <div
         v-else
         class="node tree-file"
-        :class="{ previewing: r.file!.id === previewingId }"
+        :class="{ 
+          previewing: r.file!.id === previewingId,
+          dragging: dragSource?.type === 'files' && (dragSource?.id as number[])?.includes(r.file!.id)
+        }"
         :style="{ paddingLeft: 8 + r.depth * 16 + 'px' }"
+        draggable="true"
         @click="emit('select-file', r.file!)"
+        @dragstart="onDragStartFile($event, r.file!.id)"
+        @dragend="onDragEnd"
       >
         <span class="chevron no-child" />
         <span class="file-badge">{{ fileBadge(r.file!.ext).t }}</span>

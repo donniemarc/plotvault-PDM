@@ -38,7 +38,19 @@ const contextMenu = ref<{ x: number; y: number; file: FileMeta } | null>(null)
 
 function onContextMenu(e: MouseEvent, file: FileMeta) {
   e.preventDefault()
-  contextMenu.value = { x: e.clientX, y: e.clientY, file }
+  // 计算菜单位置，避免底部截断
+  const menuHeight = 300 // 预估菜单高度（FileList菜单项更多）
+  const viewportHeight = window.innerHeight
+  let y = e.clientY
+  if (y + menuHeight > viewportHeight) {
+    y = Math.max(0, viewportHeight - menuHeight - 10)
+  }
+  let x = e.clientX
+  const menuWidth = 200
+  if (x + menuWidth > window.innerWidth) {
+    x = window.innerWidth - menuWidth - 10
+  }
+  contextMenu.value = { x, y, file }
 }
 
 function closeContextMenu() {
