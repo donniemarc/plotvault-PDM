@@ -12,6 +12,7 @@ use axum::{
 use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use subtle::ConstantTimeEq;
 use tokio_util::io::ReaderStream;
 
 use crate::{convert, db, storage, AppState};
@@ -79,15 +80,26 @@ pub type ApiResult<T> = Result<T, AppError>;
 
 async fn auth(State(state): State<AppState>, req: Request, next: Next) -> Result<Response, AppError> {
     if let Some(token) = &state.token {
-        let ok = req
+        let provided_token = req
             .headers()
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "))
-            .map(|s| s.trim().to_string())
-            == Some(token.clone());
-        if !ok {
-            return Err(AppError { status: StatusCode::UNAUTHORIZED, msg: "unauthorized".into() });
+            .map(|s| s.trim());
+        
+        match provided_token {
+            Some(provided) => {
+                let token_bytes = token.as_bytes();
+                let provided_bytes = provided.as_bytes();
+                let len_match = token_bytes.len() == provided_bytes.len();
+                let content_match: bool = token_bytes.ct_eq(provided_bytes).into();
+                if !len_match || !content_match {
+                    return Err(AppError { status: StatusCode::UNAUTHORIZED, msg: "unauthorized".into() });
+                }
+            }
+            None => {
+                return Err(AppError { status: StatusCode::UNAUTHORIZED, msg: "unauthorized".into() });
+            }
         }
     }
     Ok(next.run(req).await)
@@ -120,10 +132,40 @@ async fn health() -> Json<Value> {
     Json(json!({ "status": "ok", "service": "plotvault-pdm" }))
 }
 
-async fn tree(State(state): State<AppState>) -> ApiResult<Json<Value>> {
-    let folders = db::list_folders(&state.db).await?;
-    let files = db::list_files(&state.db).await?;
-    Ok(Json(json!({ "folders": folders, "files": files })))
+#[derive(Deserialize)]
+struct TreeQuery {
+    parent_id: Option<i64>,
+    page: Option<i64>,
+    limit: Option<i64>,
+}
+
+async fn tree(
+    State(state): State<AppState>,
+    Query(q): Query<TreeQuery>,
+) -> ApiResult<Json<Value>> {
+    let page = q.page.unwrap_or(1).max(1);
+    let limit = q.limit.unwrap_or(1000).min(5000).max(1);
+    
+    let folders = if let Some(parent_id) = q.parent_id {
+        db::list_folders_by_parent(&state.db, parent_id).await?
+    } else {
+        db::list_folders(&state.db).await?
+    };
+    
+    let files = if let Some(parent_id) = q.parent_id {
+        db::list_files_by_folder(&state.db, Some(parent_id)).await?
+    } else {
+        db::list_files(&state.db).await?
+    };
+    
+    Ok(Json(json!({ 
+        "folders": folders, 
+        "files": files,
+        "page": page,
+        "limit": limit,
+        "total_folders": folders.len(),
+        "total_files": files.len()
+    })))
 }
 
 // ---------- folders ----------

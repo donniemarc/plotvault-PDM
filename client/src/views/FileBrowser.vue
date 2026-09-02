@@ -44,6 +44,9 @@ const selectedFolderForProps = ref<Folder | null>(null)
 const selectedFileForProps = ref<FileMeta | null>(null)
 const activePreviewingId = computed(() => selectedFileForProps.value?.id ?? previewFile.value?.id ?? null)
 
+// 文件树多选状态
+const selectedFolderIds = ref<Set<number>>(new Set())
+
 const searchOpen = ref(false)
 const searchQ = ref('')
 const searchResults = ref<FileMeta[]>([])
@@ -267,6 +270,7 @@ const currentDirNames = computed(() =>
 
 async function selectFolder(id: number | null) {
   selectedFolder.value = id
+  selectedFolderIds.value = new Set(id !== null ? [id] : [])
   searchOpen.value = false
   previewFile.value = null
   versionPanelFile.value = null
@@ -283,6 +287,29 @@ async function selectFolder(id: number | null) {
   
   activePropertyTab.value = 'property'
   clearSelection()
+}
+
+function selectFolderMulti(ids: Set<number>) {
+  selectedFolderIds.value = ids
+  // 多选时清除属性面板显示
+  selectedFolderForProps.value = null
+  selectedFileForProps.value = null
+  previewFile.value = null
+  versionPanelFile.value = null
+  // 清除 FileList checkbox 选择，保持状态一致
+  clearSelection()
+}
+
+function selectFilesMulti(ids: Set<number>) {
+  // 文件多选时，清除文件夹选中状态
+  selectedFolderIds.value = new Set()
+  selectedFolderForProps.value = null
+  selectedFileForProps.value = null
+  previewFile.value = null
+  versionPanelFile.value = null
+  
+  // 将文件多选状态同步到 selectedIds（用于批量操作栏）
+  selectedIds.value = ids
 }
 
 function folderName(id: number | null): string {
@@ -319,10 +346,9 @@ function openPreview(f: FileMeta) {
   previewVersion.value = undefined
   versionPanelFile.value = null
   
-  // 只显示属性面板（内嵌预览），不弹出右侧预览窗口
   selectedFileForProps.value = f
   selectedFolderForProps.value = null
-  selectedFolder.value = null
+  selectedFolderIds.value = new Set()
   activePropertyTab.value = 'property'
 }
 
@@ -440,12 +466,15 @@ async function onMoveFolder(folderId: number, targetParentId: number | null) {
 // ---------- 拖拽移动文件 ----------
 async function onMoveFiles(fileIds: number[], targetFolderId: number | null) {
   try {
-    for (const id of fileIds) {
-      const f = filesById.value.get(id)
-      if (f && f.folder_id !== targetFolderId) {
-        await api.patchFile(id, { folder_id: targetFolderId })
-      }
-    }
+    // 使用并发执行提高效率
+    await Promise.all(
+      fileIds
+        .filter(id => {
+          const f = filesById.value.get(id)
+          return f && f.folder_id !== targetFolderId
+        })
+        .map(id => api.patchFile(id, { folder_id: targetFolderId }))
+    )
     await load()
     clearSelection()
     toast('已移动', 'ok')
@@ -587,7 +616,8 @@ async function doConfirmDelete() {
       if (versionPanelFile.value?.id === m.id) versionPanelFile.value = null
     } else if (m.type === 'files') {
       const ids = m.ids || []
-      for (const id of ids) await api.deleteFile(id)
+      // 使用并发执行提高效率
+      await Promise.all(ids.map(id => api.deleteFile(id)))
       if (previewFile.value && ids.includes(previewFile.value.id)) previewFile.value = null
       if (versionPanelFile.value && ids.includes(versionPanelFile.value.id)) versionPanelFile.value = null
       clearSelection()
@@ -695,10 +725,7 @@ onMounted(() => {
   window.addEventListener('dragleave', onWindowDragLeave)
   // capture：树节点 @drop.stop 会阻止冒泡，但捕获阶段窗口先执行，确保遮罩复位
   window.addEventListener('drop', onWindowDrop, true)
-  window.addEventListener('dragend', () => {
-    dragOver.value = false
-    document.body.classList.remove('file-dragging')
-  })
+  window.addEventListener('dragend', onDragEnd)
   // 开始轮询同步状态（每5秒检查一次）
   pollSyncStatus()
   syncPollTimer = setInterval(pollSyncStatus, 5000)
@@ -708,12 +735,18 @@ function onWinResize() {
   rightPanelWidth.value = clampPanelW(rightPanelWidth.value)
 }
 
+function onDragEnd() {
+  dragOver.value = false
+  document.body.classList.remove('file-dragging')
+}
+
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('resize', onWinResize)
   window.removeEventListener('dragover', onWindowDragOver)
   window.removeEventListener('dragleave', onWindowDragLeave)
   window.removeEventListener('drop', onWindowDrop, true)
+  window.removeEventListener('dragend', onDragEnd)
   // 清理同步状态轮询
   if (syncPollTimer) {
     clearInterval(syncPollTimer)
@@ -737,9 +770,12 @@ defineExpose({ goHome })
         :folders="folders"
         :files="files"
         :selected="selectedFolder"
+        :selected-ids="selectedFolderIds"
           :previewing-id="activePreviewingId"
         :root-name="rootName"
         @select="selectFolder"
+        @select-multi="selectFolderMulti"
+        @select-multi-files="selectFilesMulti"
         @new-folder="openNewFolder"
         @rename="(f) => openRename('folder', f.id, f.name)"
         @rename-root="openRename('root', 0, rootName)"
@@ -749,6 +785,9 @@ defineExpose({ goHome })
         @move-files="onMoveFiles"
         @open-folder="openFolderFromTree"
         @select-file="openPreview"
+        @download-file="download"
+        @rename-file="(f) => openRename('file', f.id, f.name)"
+        @delete-file="removeFile"
       />
     </aside>
 

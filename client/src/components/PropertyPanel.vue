@@ -390,7 +390,7 @@ function getFileTypeIcon(ext: string): string {
 </script>
 
 <template>
-  <div class="property-panel">
+  <div class="property-panel" @mousedown.middle.prevent>
     <!-- 标签页头部 -->
     <div class="tabs-header">
       <button 
@@ -463,7 +463,7 @@ function getFileTypeIcon(ext: string): string {
           </div>
           <div class="prop-row full">
             <label class="prop-label">描述</label>
-            <textarea v-model="formData.description" class="prop-textarea" rows="3" placeholder="输入描述信息"></textarea>
+            <textarea v-model="formData.description" class="prop-textarea" rows="3" placeholder="输入描述信息" @mousedown.middle.prevent></textarea>
           </div>
         </div>
       </template>
@@ -541,7 +541,7 @@ function getFileTypeIcon(ext: string): string {
           </div>
           <div class="prop-row full">
             <label class="prop-label">描述</label>
-            <textarea v-model="formData.description" class="prop-textarea" rows="3" placeholder="输入描述信息"></textarea>
+            <textarea v-model="formData.description" class="prop-textarea" rows="3" placeholder="输入描述信息" @mousedown.middle.prevent></textarea>
           </div>
         </div>
       </template>

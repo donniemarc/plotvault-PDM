@@ -1,6 +1,6 @@
 [package]
 name = "plotvault-pdm-server"
-version = "2.0.3"
+version = "2.0.6"
 edition = "2021"
 
 [[bin]]
@@ -23,6 +23,7 @@ mime_guess = "2"
 uuid = { version = "1", features = ["v4"] }
 percent-encoding = "2"
 zip = "2"
+subtle = "2.5"
 
 [profile.release]
 opt-level = 2

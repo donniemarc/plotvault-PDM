@@ -1,0 +1,75 @@
+# PlotVault PDM - TrueNAS SCALE 部署版
+#
+# 权限模型：
+#   pgdata/  → 999 读写执行 | Group 无 | 其他 无  （PostgreSQL 独占，等同 netdata）
+#   config/  → 568 读写执行 | Group 无 | 其他 无  （容器独占）
+#   data/    → 568 读写执行 + ACL 给3000 读写  （容器写，Windows SMB 读写）
+#
+# 部署前准备（TrueNAS Shell）：
+#   1. 创建数据集：pool1/apps/plotvault-pdm
+#   2. 在数据集下建子目录：data config pgdata
+#   3. 设置目录权限：
+#        chown -R 999:999 /mnt/pool1/apps/plotvault-pdm/pgdata
+#        chmod -R 700 /mnt/pool1/apps/plotvault-pdm/pgdata
+#        chown -R 568:568 /mnt/pool1/apps/plotvault-pdm/config
+#        chmod -R 700 /mnt/pool1/apps/plotvault-pdm/config
+#        chown -R 568:568 /mnt/pool1/apps/plotvault-pdm/data
+#        chmod -R 775 /mnt/pool1/apps/plotvault-pdm/data
+#   4. data/ 数据集设置 ACL：添加 User 3000 → Read/Write/Execute（继承）
+#   5. 替换本文件中所有 <...> 占位符
+#   6. Apps → Custom App → Use docker-compose → 粘贴本文件
+#
+# ⚠️ 不要写 user: 字段，TrueNAS 自动以 568:568 运行容器
+
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: plotvault-pdm-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=plotvault_pdm
+      - POSTGRES_PASSWORD=<数据库密码>
+      - POSTGRES_DB=plotvault_pdm
+    volumes:
+      # PG 18+ 数据存于 /var/lib/postgresql/18/docker
+      # 必须挂载父目录 /var/lib/postgresql（挂 /data 会报错拒绝启动）
+      # 宿主路径 pgdata/ 权限：999 读写执行，Group 无，其他无
+      - <PGDATA_HOST_PATH>:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plotvault_pdm -d plotvault_pdm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period:30s
+
+  plotvault-pdm:
+    image: <DOCKERHUB_USER>/plotvault-pdm-server:latest
+    container_name: plotvault-pdm
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "<HOST_PORT>:8642"
+    environment:
+      - DATA_DIR=/data
+      - CONFIG_DIR=/config
+      - DATABASE_URL=postgres://plotvault_pdm:<数据库密码>@db:5432/plotvault_pdm
+      - BIND=0.0.0.0:8642
+      - API_TOKEN=<API_TOKEN>
+    volumes:
+      # /data = 图纸数据（library 真实目录 + blobs 版本归档）
+      # 宿主权限：568 读写执行 + ACL 给3000 读写
+      - <DATA_HOST_PATH>:/data
+      # /config = 软件缓存（dxf_cache + tmp），容器独占
+      # 宿主权限：568 读写执行，Group 无，其他无
+      - <CONFIG_HOST_PATH>:/config
+
+  # 可选：STEP/IGES 服务端转换（大文件解析放 NAS）
+  # 启用：客户端 api.ts 的 STEP_CONVERT_URL 改为 http://<NAS-IP>:8000
+  # converter:
+  #   image: <DOCKERHUB_USER>/plotvault-pdm-converter:latest
+  #   container_name: plotvault-pdm-converter
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8000:8000"

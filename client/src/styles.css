@@ -400,3 +400,8 @@ body.file-dragging iframe,
 body.file-dragging iframe * {
   pointer-events: none !important;
 }
+
+/* 禁用 textarea/input 的鼠标中键自动滚动 */
+textarea, input[type="text"], input[type="number"], input[type="search"], select {
+  -webkit-user-modify: read-only;
+}

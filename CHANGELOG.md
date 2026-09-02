@@ -5,6 +5,44 @@
 - **次版本（x.Y.z）**：新增功能
 - **补丁（x.y.Z）**：修复缺陷
 
+## [2.0.6] - 2026-09-02
+
+### 客户端
+- **修复文件树文件夹与文件双重选中高亮**：点击文件夹内的文件时，文件夹不再保持选中高亮；修复文件夹名称点击事件冒泡导致的重复触发
+
+## [2.0.5] - 2026-09-01
+
+### 后端
+- **修复事件监听器内存泄漏**：App.vue 中 blockMiddle 函数提取为模块级函数，添加 onBeforeUnmount 清理 5 个 window 事件监听器
+- **修复 FileBrowser.vue 事件监听器泄漏**：提取匿名 dragend 处理为命名函数 onDragEnd，添加 onBeforeUnmount 清理
+- **优化批量操作并发执行**：批量删除和移动从串行 for...await 改为 Promise.all 并发执行，提升效率
+- **优化 /api/tree API 分页**：新增 TreeQuery 参数（parent_id/page/list_limit），后端新增 list_folders_by_parent 函数
+- **改进认证机制**：引入 subtle crate 的 ConstantTimeEq 常量时间比较，防止时序攻击
+
+### 客户端
+- **修复 App.vue 事件监听器泄漏**：onBeforeUnmount 中清理所有注册的 window 事件监听器
+- **修复 FileBrowser.vue 事件监听器泄漏**：onBeforeUnmount 中清理 dragend 事件监听器
+- **优化批量操作并发执行**：批量删除和移动使用 Promise.all 并发执行
+
+## [2.0.4] - 2026-09-01
+
+### 后端
+- **修复 drawing_size 列不存在导致上传报错**：将 `drawing_size` 等字段直接写入 CREATE TABLE 建表语句，确保新建数据库包含所有字段；同时保留 ensure_columns 防御性检查
+
+### 客户端
+- **修复文件树 Shift+左键多选无反应**：文件夹名称点击事件也绑定 handleFolderClick，确保点击名称区域可触发多选
+- **修复属性面板输入框鼠标中键滚动**：使用 window 层级 pointerdown/mousedown/mouseup/auxclick/click 五重拦截，stopImmediatePropagation 确保 Chromium 自动滚动光标不出现
+
+## [2.0.3] - 2026-09-01
+
+### 后端
+- **修复 drawing_size 列不存在导致上传报错**：启动时检查 `files` 和 `folders` 表的关键列是否存在，不存在则自动添加，防止迁移失败导致查询报错
+
+### 客户端
+- **文件树 Shift+左键多选功能**：支持按住 Shift 键范围选中文件夹
+- **全局移除鼠标中键滚动**：禁用浏览器默认的中键自动滚动行为
+- **文件树文件节点右键菜单**：文件树中的文件支持右键弹出菜单（预览、下载、重命名、删除）
+
 ## [2.0.2] - 2026-08-28
 
 ### 后端

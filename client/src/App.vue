@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, provide, ref } from 'vue'
+import { onMounted, provide, ref, onBeforeUnmount } from 'vue'
 import { checkServer, getConfig } from './api'
 import FileBrowser from './views/FileBrowser.vue'
 import SettingsView from './views/SettingsView.vue'
@@ -53,6 +53,19 @@ function onSaved() {
   refreshConn()
 }
 
+// 禁用鼠标中键滚动（防止浏览器默认的自动滚动行为）
+// Chromium/Tauri webview 中，中键点击会触发自动滚动光标
+// 必须在 mousedown 阶段就阻止默认行为
+const blockMiddle = (e: Event) => {
+  const me = e as MouseEvent
+  if (me.button === 1) {
+    e.preventDefault()
+    e.stopPropagation()
+    e.stopImmediatePropagation()
+    return false
+  }
+}
+
 onMounted(async () => {
   await refreshConn()
   
@@ -64,6 +77,22 @@ onMounted(async () => {
   } catch (error) {
     console.error('启动时检查更新失败:', error)
   }
+
+  // 在 window 层级注册，确保最先拦截
+  window.addEventListener('pointerdown', blockMiddle, true)
+  window.addEventListener('mousedown', blockMiddle, true)
+  window.addEventListener('mouseup', blockMiddle, true)
+  window.addEventListener('auxclick', blockMiddle, true)
+  window.addEventListener('click', blockMiddle, true)
+})
+
+onBeforeUnmount(() => {
+  // 清理事件监听器，防止内存泄漏
+  window.removeEventListener('pointerdown', blockMiddle, true)
+  window.removeEventListener('mousedown', blockMiddle, true)
+  window.removeEventListener('mouseup', blockMiddle, true)
+  window.removeEventListener('auxclick', blockMiddle, true)
+  window.removeEventListener('click', blockMiddle, true)
 })
 </script>
 

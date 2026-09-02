@@ -1,6 +1,6 @@
 [package]
 name = "plotvault-pdm-client"
-version = "2.0.3"
+version = "2.0.6"
 description = "PlotVault PDM 客户端"
 edition = "2021"
 

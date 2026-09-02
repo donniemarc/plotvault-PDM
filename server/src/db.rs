@@ -28,6 +28,11 @@ CREATE TABLE IF NOT EXISTS files (
     status TEXT NOT NULL DEFAULT '',
     remarks TEXT NOT NULL DEFAULT '',
     creator TEXT NOT NULL DEFAULT '',
+    drawing_size TEXT NOT NULL DEFAULT '',
+    source_file_type TEXT NOT NULL DEFAULT '',
+    source_file_version TEXT NOT NULL DEFAULT '',
+    other_info TEXT NOT NULL DEFAULT '',
+    publish_time TEXT NOT NULL DEFAULT '',
     current_version BIGINT NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
     updated_at TEXT NOT NULL DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
@@ -127,6 +132,88 @@ pub async fn init(pool: &PgPool) -> sqlx::Result<()> {
             eprintln!("warning: migration failed: {} - {}", migration, e);
         }
     }
+    // 启动时检查关键列是否存在，不存在则强制添加
+    ensure_columns(pool).await?;
+    Ok(())
+}
+
+/// 检查并确保关键列存在（防御性检查，防止迁移失败导致查询报错）
+async fn ensure_columns(pool: &PgPool) -> sqlx::Result<()> {
+    println!("database: checking critical columns...");
+    
+    // 检查 files 表的 drawing_size 列
+    let has_drawing_size: bool = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'files' AND column_name = 'drawing_size'
+        )"
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if !has_drawing_size {
+        println!("database: adding missing column 'drawing_size' to files table");
+        sqlx::raw_sql("ALTER TABLE files ADD COLUMN IF NOT EXISTS drawing_size TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await?;
+        println!("database: column 'drawing_size' added successfully");
+    } else {
+        println!("database: column 'drawing_size' already exists");
+    }
+
+    // 检查 files 表的其他关键列
+    let critical_columns = [
+        "code", "stage", "status", "remarks", "creator",
+        "source_file_type", "source_file_version", "other_info", "publish_time"
+    ];
+    
+    for col in &critical_columns {
+        let has_col: bool = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'files' AND column_name = $1
+            )"
+        )
+        .bind(col)
+        .fetch_one(pool)
+        .await?;
+
+        if !has_col {
+            println!("database: adding missing column '{}' to files table", col);
+            sqlx::raw_sql(&format!(
+                "ALTER TABLE files ADD COLUMN IF NOT EXISTS {} TEXT NOT NULL DEFAULT ''",
+                col
+            ))
+            .execute(pool)
+            .await?;
+        }
+    }
+
+    // 检查 folders 表的关键列
+    let folder_columns = ["code", "stage", "status", "description", "remarks", "creator"];
+    for col in &folder_columns {
+        let has_col: bool = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'folders' AND column_name = $1
+            )"
+        )
+        .bind(col)
+        .fetch_one(pool)
+        .await?;
+
+        if !has_col {
+            println!("database: adding missing column '{}' to folders table", col);
+            sqlx::raw_sql(&format!(
+                "ALTER TABLE folders ADD COLUMN IF NOT EXISTS {} TEXT NOT NULL DEFAULT ''",
+                col
+            ))
+            .execute(pool)
+            .await?;
+        }
+    }
+
+    println!("database: column check completed");
     Ok(())
 }
 
@@ -134,6 +221,15 @@ pub async fn list_folders(pool: &PgPool) -> sqlx::Result<Vec<Folder>> {
     Ok(sqlx::query_as::<_, Folder>(
         "SELECT id, parent_id, name, code, stage, status, description, remarks, creator, created_at FROM folders ORDER BY name",
     )
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn list_folders_by_parent(pool: &PgPool, parent_id: i64) -> sqlx::Result<Vec<Folder>> {
+    Ok(sqlx::query_as::<_, Folder>(
+        "SELECT id, parent_id, name, code, stage, status, description, remarks, creator, created_at FROM folders WHERE parent_id = $1 ORDER BY name",
+    )
+    .bind(parent_id)
     .fetch_all(pool)
     .await?)
 }
@@ -362,7 +458,7 @@ pub async fn find_file_by_name(
     name: &str,
 ) -> sqlx::Result<Option<FileMeta>> {
     Ok(sqlx::query_as::<_, FileMeta>(
-        "SELECT id, folder_id, name, ext, size, description, code, stage, status, remarks, creator, current_version, created_at, updated_at
+        "SELECT id, folder_id, name, ext, size, description, code, stage, status, remarks, creator, drawing_size, source_file_type, source_file_version, other_info, publish_time, current_version, created_at, updated_at
          FROM files WHERE folder_id IS NOT DISTINCT FROM $1 AND name = $2",
     )
     .bind(folder_id)
@@ -377,7 +473,7 @@ pub async fn find_file_by_name_exact(
     name: &str,
 ) -> sqlx::Result<Option<FileMeta>> {
     Ok(sqlx::query_as::<_, FileMeta>(
-        "SELECT id, folder_id, name, ext, size, description, code, stage, status, remarks, creator, current_version, created_at, updated_at
+        "SELECT id, folder_id, name, ext, size, description, code, stage, status, remarks, creator, drawing_size, source_file_type, source_file_version, other_info, publish_time, current_version, created_at, updated_at
          FROM files WHERE name = $1 LIMIT 1",
     )
     .bind(name)

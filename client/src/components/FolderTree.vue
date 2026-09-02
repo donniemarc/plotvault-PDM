@@ -41,11 +41,14 @@ const props = defineProps<{
   folders: Folder[]
   files: FileMeta[]
   selected: number | null
+  selectedIds?: Set<number>
   previewingId?: number | null
   rootName: string
 }>()
 const emit = defineEmits<{
   select: [id: number | null]
+  'select-multi': [ids: Set<number>]
+  'select-multi-files': [ids: Set<number>]
   'new-folder': [parentId: number | null]
   rename: [folder: Folder]
   renameRoot: []
@@ -55,6 +58,9 @@ const emit = defineEmits<{
   'move-files': [fileIds: number[], targetFolderId: number | null]
   'open-folder': [folderId: number | null]
   'select-file': [file: FileMeta]
+  'download-file': [file: FileMeta]
+  'rename-file': [file: FileMeta]
+  'delete-file': [file: FileMeta]
 }>()
 
 // 标准逐层展开：打开默认展开根节点显示一级目录，子级点击再展开
@@ -63,6 +69,25 @@ const expanded = ref<Set<number>>(loadExpanded())
 const dragOverId = ref<number | 'root' | null>(null)
 const dragSource = ref<{ type: 'folder' | 'files'; id: number | number[] } | null>(null)
 const isDragOverRoot = ref(false)
+
+// 多选状态
+const lastSelectedId = ref<number | null>(null)
+const lastSelectedType = ref<'folder' | 'file' | null>(null)
+const selectedIdsInternal = ref<Set<number>>(new Set())
+const selectedFileIdsInternal = ref<Set<number>>(new Set())
+
+// 计算当前选中的IDs（优先使用外部传入的selectedIds，否则用内部状态）
+const currentSelectedIds = computed(() => {
+  // 显式检查 size > 0，避免空 Set 的 truthy 陷阱
+  return (props.selectedIds && props.selectedIds.size > 0) 
+    ? props.selectedIds 
+    : selectedIdsInternal.value
+})
+
+// 计算当前选中的文件IDs
+const currentSelectedFileIds = computed(() => {
+  return selectedFileIdsInternal.value
+})
 
 function onDragOverRoot() {
   if (dragSource.value) {
@@ -83,9 +108,12 @@ const rootHasChildren = computed(() => {
   return props.files.some((f) => f.folder_id == null)
 })
 
-// 右键菜单
+// 右键菜单（文件夹）
 const contextMenu = ref<{ x: number; y: number; folderId: number | null; folderName: string; folder: Folder | null } | null>(null)
 const contextMenuRef = ref<HTMLElement | null>(null)
+
+// 右键菜单（文件）
+const fileContextMenu = ref<{ x: number; y: number; file: FileMeta } | null>(null)
 
 function onContextMenu(e: MouseEvent, folderId: number | null, folderName: string, folder: Folder | null) {
   e.preventDefault()
@@ -104,8 +132,27 @@ function onContextMenu(e: MouseEvent, folderId: number | null, folderName: strin
   contextMenu.value = { x, y, folderId, folderName, folder }
 }
 
+function onFileContextMenu(e: MouseEvent, file: FileMeta) {
+  e.preventDefault()
+  e.stopPropagation()
+  // 计算菜单位置，避免底部截断
+  const menuHeight = 200
+  const viewportHeight = window.innerHeight
+  let y = e.clientY
+  if (y + menuHeight > viewportHeight) {
+    y = Math.max(0, viewportHeight - menuHeight - 10)
+  }
+  let x = e.clientX
+  const menuWidth = 180
+  if (x + menuWidth > window.innerWidth) {
+    x = window.innerWidth - menuWidth - 10
+  }
+  fileContextMenu.value = { x, y, file }
+}
+
 function closeContextMenu() {
   contextMenu.value = null
+  fileContextMenu.value = null
 }
 
 function ctxAction(action: string) {
@@ -117,6 +164,16 @@ function ctxAction(action: string) {
   else if (action === 'rename-root') emit('renameRoot')
   else if (action === 'rename' && folder) emit('rename', folder)
   else if (action === 'delete' && folder) emit('delete', folder)
+}
+
+function fileCtxAction(action: string) {
+  if (!fileContextMenu.value) return
+  const { file } = fileContextMenu.value
+  closeContextMenu()
+  if (action === 'preview') emit('select-file', file)
+  else if (action === 'download') emit('download-file', file)
+  else if (action === 'rename') emit('rename-file', file)
+  else if (action === 'delete') emit('delete-file', file)
 }
 
 function onGlobalClick() {
@@ -183,6 +240,82 @@ const rows = computed(() => {
   }
   return out
 })
+
+// 获取可见的所有文件夹ID列表（用于范围选择）
+function getVisibleFolderIds(): number[] {
+  return rows.value
+    .filter(r => r.type === 'folder' && r.folder)
+    .map(r => r.folder!.id)
+}
+
+// 获取可见的所有文件ID列表（用于范围选择）
+function getVisibleFileIds(): number[] {
+  return rows.value
+    .filter(r => r.type === 'file' && r.file)
+    .map(r => r.file!.id)
+}
+
+// 处理文件夹点击（支持Shift多选）
+function handleFolderClick(e: MouseEvent, folderId: number) {
+  // 清除文件多选状态
+  selectedFileIdsInternal.value = new Set()
+  
+  const visibleIds = getVisibleFolderIds()
+  
+  if (e.shiftKey && lastSelectedId.value !== null && lastSelectedType.value === 'folder') {
+    // Shift+点击：范围选择
+    const lastIdx = visibleIds.indexOf(lastSelectedId.value)
+    const curIdx = visibleIds.indexOf(folderId)
+    if (lastIdx !== -1 && curIdx !== -1) {
+      const start = Math.min(lastIdx, curIdx)
+      const end = Math.max(lastIdx, curIdx)
+      const newIds = new Set(currentSelectedIds.value)
+      for (let i = start; i <= end; i++) {
+        newIds.add(visibleIds[i])
+      }
+      selectedIdsInternal.value = newIds
+      emit('select-multi', newIds)
+      return
+    }
+  }
+  
+  // 普通点击：单选
+  selectedIdsInternal.value = new Set([folderId])
+  lastSelectedId.value = folderId
+  lastSelectedType.value = 'folder'
+  emit('select', folderId)
+}
+
+// 处理文件点击（支持Shift多选）
+function handleFileClick(e: MouseEvent, file: FileMeta) {
+  // 清除文件夹多选状态
+  selectedIdsInternal.value = new Set()
+  
+  const visibleIds = getVisibleFileIds()
+  
+  if (e.shiftKey && lastSelectedId.value !== null && lastSelectedType.value === 'file') {
+    // Shift+点击：范围选择
+    const lastIdx = visibleIds.indexOf(lastSelectedId.value)
+    const curIdx = visibleIds.indexOf(file.id)
+    if (lastIdx !== -1 && curIdx !== -1) {
+      const start = Math.min(lastIdx, curIdx)
+      const end = Math.max(lastIdx, curIdx)
+      const newIds = new Set(currentSelectedFileIds.value)
+      for (let i = start; i <= end; i++) {
+        newIds.add(visibleIds[i])
+      }
+      selectedFileIdsInternal.value = newIds
+      emit('select-multi-files', newIds)
+      return
+    }
+  }
+  
+  // 普通点击：单选
+  selectedFileIdsInternal.value = new Set([file.id])
+  lastSelectedId.value = file.id
+  lastSelectedType.value = 'file'
+  emit('select-file', file)
+}
 
 function toggle(folder: Folder) {
   if (!rows.value.find((r) => r.type === 'folder' && r.folder?.id === folder.id)?.hasChildren) return
@@ -267,17 +400,30 @@ function expandTo(folderId: number) {
 }
 
 defineExpose({ expandTo })
+
+// 处理根节点点击（清除多选状态和锚点）
+function handleRootClick() {
+  // 清除文件夹多选状态
+  selectedIdsInternal.value = new Set()
+  // 清除文件多选状态
+  selectedFileIdsInternal.value = new Set()
+  // 清除锚点
+  lastSelectedId.value = null
+  lastSelectedType.value = null
+  // 发送选中根节点事件
+  emit('select', null)
+}
 </script>
 
 <template>
   <div class="tree" @contextmenu.prevent>
     <div
       class="node"
-      :class="{ selected: selected === null, 'drag-over': isDragOverRoot }"
+      :class="{ selected: selected === null && (selectedIds?.size ?? 0) === 0, 'drag-over': isDragOverRoot }"
       style="padding-left: 8px"
       tabindex="0"
-      @click="emit('select', null)"
-      @keydown.enter.prevent="emit('select', null)"
+      @click="handleRootClick"
+      @keydown.enter.prevent="handleRootClick"
       @dragover.prevent="onDragOverRoot"
       @dragleave="onDragLeaveRoot"
       @drop.stop="onDropNode($event, null)"
@@ -290,7 +436,7 @@ defineExpose({ expandTo })
         >{{ rootHasChildren ? (rootExpanded ? '▾' : '▸') : '' }}</span
       >
       <span class="folder-ico" @click.stop="rootExpanded = !rootExpanded">📁</span>
-      <span class="name" @click="emit('select', null)" :title="rootName">{{ rootName }}</span>
+      <span class="name" @click.stop="emit('select', null)" :title="rootName">{{ rootName }}</span>
       <span class="acts">
         <button class="mini" title="新建文件夹" @click.stop="emit('new-folder', null)">＋</button>
         <button class="mini" title="重命名根目录" @click.stop="emit('renameRoot')">✎</button>
@@ -302,14 +448,14 @@ defineExpose({ expandTo })
         v-if="r.type === 'folder'"
         class="node"
         :class="{
-          selected: selected === r.folder!.id,
+          selected: selectedFileIdsInternal.size === 0 && (selected === r.folder!.id || currentSelectedIds.has(r.folder!.id)),
           'drag-over': dragOverId === r.folder!.id,
           'dragging': dragSource?.type === 'folder' && dragSource?.id === r.folder!.id
         }"
         :style="{ paddingLeft: 8 + r.depth * 16 + 'px' }"
         tabindex="0"
         draggable="true"
-        @click="emit('select', r.folder!.id)"
+        @click="handleFolderClick($event, r.folder!.id)"
         @dblclick.stop="toggle(r.folder!)"
         @keydown.enter.prevent="emit('select', r.folder!.id)"
         @dragover.prevent="dragOverId = r.folder!.id"
@@ -323,7 +469,7 @@ defineExpose({ expandTo })
           {{ r.hasChildren ? (isExpanded(r.folder!) ? '▾' : '▸') : '' }}
         </span>
         <span class="folder-ico" @click.stop="toggle(r.folder!)">📁</span>
-        <span class="name" @click="emit('select', r.folder!.id)" :title="r.folder!.name">{{ r.folder!.name }}</span>
+        <span class="name" @click.stop="handleFolderClick($event, r.folder!.id)" :title="r.folder!.name">{{ r.folder!.name }}</span>
         <span class="acts">
           <button class="mini" title="新建子文件夹" @click.stop="emit('new-folder', r.folder!.id)">＋</button>
           <button class="mini" title="重命名" @click.stop="emit('rename', r.folder!)">✎</button>
@@ -336,13 +482,15 @@ defineExpose({ expandTo })
         class="node tree-file"
         :class="{ 
           previewing: r.file!.id === previewingId,
+          selected: currentSelectedFileIds.has(r.file!.id),
           dragging: dragSource?.type === 'files' && (dragSource?.id as number[])?.includes(r.file!.id)
         }"
         :style="{ paddingLeft: 8 + r.depth * 16 + 'px' }"
         draggable="true"
-        @click="emit('select-file', r.file!)"
+        @click.stop="handleFileClick($event, r.file!)"
         @dragstart="onDragStartFile($event, r.file!.id)"
         @dragend="onDragEnd"
+        @contextmenu.stop="onFileContextMenu($event, r.file!)"
       >
         <span class="chevron no-child" />
         <span class="file-badge">{{ fileBadge(r.file!.ext).t }}</span>
@@ -350,7 +498,7 @@ defineExpose({ expandTo })
       </div>
     </template>
 
-    <!-- 右键菜单 -->
+    <!-- 文件夹右键菜单 -->
     <Teleport to="body">
       <div
         v-if="contextMenu"
@@ -381,6 +529,32 @@ defineExpose({ expandTo })
             <span class="ctx-ico">✎</span> 重命名根目录
           </div>
         </template>
+      </div>
+    </Teleport>
+
+    <!-- 文件右键菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="fileContextMenu"
+        class="context-menu"
+        :style="{ left: fileContextMenu.x + 'px', top: fileContextMenu.y + 'px' }"
+        @click.stop
+      >
+        <div class="ctx-item" @click="fileCtxAction('preview')">
+          <span class="ctx-ico">👁</span> 预览
+        </div>
+        <div class="ctx-sep" />
+        <div class="ctx-item" @click="fileCtxAction('download')">
+          <span class="ctx-ico">⬇</span> 下载
+        </div>
+        <div class="ctx-sep" />
+        <div class="ctx-item" @click="fileCtxAction('rename')">
+          <span class="ctx-ico">✎</span> 重命名
+        </div>
+        <div class="ctx-sep" />
+        <div class="ctx-item ctx-danger" @click="fileCtxAction('delete')">
+          <span class="ctx-ico">🗑</span> 删除
+        </div>
       </div>
     </Teleport>
   </div>
@@ -435,6 +609,11 @@ defineExpose({ expandTo })
   opacity: 0.85;
 }
 .tree-file:hover {
+  opacity: 1;
+}
+.tree-file.selected {
+  background: var(--bg-active);
+  box-shadow: inset 3px 0 0 0 var(--accent);
   opacity: 1;
 }
 .tree-file.previewing {
